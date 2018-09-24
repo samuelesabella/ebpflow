@@ -5,7 +5,7 @@
 #include <bcc/BPF.h>
 
 // Credits to: Joel Sjögren
-// https://stackoverflow.com/questions/2616906/how-do-i-output-coloured-text-to-a-linux-terminal
+// https://stackoverflow.com/a/17469726
 #include "colors.h" 
 
 using namespace std;

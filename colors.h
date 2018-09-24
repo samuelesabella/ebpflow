@@ -1,4 +1,7 @@
 #include <ostream>
+
+// Credits to: Joel Sjögren
+// https://stackoverflow.com/a/17469726
 namespace Color {
     enum Code {
         FG_RED      = 31,
