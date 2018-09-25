@@ -1,6 +1,11 @@
+/*
+ * Basic example of using ebpf in C. 
+ */
+
 #include <unistd.h>
 #include <algorithm>
 #include <iostream>
+#include <signal.h>
 
 #include <bcc/BPF.h>
 
@@ -8,19 +13,31 @@
 // https://stackoverflow.com/a/17469726
 #include "colors.h" 
 
-using namespace std;
 
+// ----- ----- MACROS ----- ----- //
 #define ERR(x) { 							\
     std::cerr << red << x << def << endl; 	\
 }
 
 
+// ----- ----- STRUCTS AND CLASSES ----- ----- //
+// User kernel data
+struct UserKernelData {
+	__u32 pid;
+	__u64 ts;
+	char comm[16];
+};
+
+
 // ----- ----- GLOBALS ----- ----- //
-// colors
+int running = 1; // stopping condition
+ebpf::BPF* bpf;
+
+// colors ----- //
 Color::Modifier red(Color::FG_RED);
 Color::Modifier def(Color::FG_DEFAULT);
 
-// bpf program
+// bpf program ----- //
 const std::string BPF_PROGRAM = R"(
 #include <linux/sched.h>
 
@@ -32,7 +49,7 @@ struct data_t {
 };
 BPF_PERF_OUTPUT(events);
 
-int hello(struct pt_regs *ctx) {
+int trace(struct pt_regs *ctx) {
 	struct data_t data = {};
 
 	data.pid = bpf_get_current_pid_tgid();
@@ -45,88 +62,64 @@ int hello(struct pt_regs *ctx) {
 }
 )";
 
-// User kernel data
-struct data_t {
-	__u32 pid;
-	__u64 ts;
-	char comm[16];
-};
+
+// ----- ----- CALLBACKS ----- ----- //
+/*
+ * NAME: HandleOutput
+ * INPUT:
+ *       cb_cookie    - the char array in which the address will be copied
+ *       data - the string containing the MAC address
+ *		 data_length
+ * RETURN: zero on success; -1 if an error occurres
+ */
+void OutputHandler(void* t_bpfctx, void* t_data, int t_datasize) {
+  auto event = static_cast<UserKernelData*>(t_data);
+  std::cout << "PID: " << event->pid << " " << event->comm
+            << std::endl;
+}
+
+/*
+ * NAME: SignalHandler
+ * BRIEF: schedule the execution termination
+ */
+void SignalHandler(int t_s) {
+  std::cerr << "\rTerminating..." << std::endl;
+  delete bpf;
+  running = 0;
+}
 
 
+// ----- ----- MAIN ----- ----- //
+using namespace std;
 int main(int argc, char** argv) {
-	// ----- defining bpf ----- //
-	ebpf::BPF bpf;
-	auto init_res = bpf.init(BPF_PROGRAM);
+	bpf = new ebpf::BPF();
+
+	auto init_res = bpf->init(BPF_PROGRAM);
 	if (init_res.code() != 0) {
 		ERR(init_res.msg());
 		return 1;
 	} // BPF couldn't be load
 
-	// ----- attaching the probe ----- //
-	auto attach_res = bpf.attach_kprobe("tcp_sendmsg", "hello");
+	// attaching the probe ----- //
+	auto attach_res = bpf->attach_kprobe("sys_sync", "trace");
 	if (attach_res.code() != 0) {
 		ERR(attach_res.msg());
 		return 1;
 	} // Error while attaching the probe
 	
-	/*
-	int probe_time = 10;
-	if (argc == 2) {
-	probe_time = atoi(argv[1]);
-	}
-	std::cout << "Probing for " << probe_time << " seconds" << std::endl;
-	sleep(probe_time);
+	// opening output buffer ----- //
+	auto open_res = bpf->open_perf_buffer("events", &OutputHandler);
+	if (open_res.code() != 0) {
+		ERR(open_res.msg());
+		return 1;
+	} // Cannot open buffer
 
-	auto detach_res = bpf.detach_kprobe("tcp_sendmsg");
-	if (detach_res.code() != 0) {
-	std::cerr << detach_res.msg() << std::endl;
-	return 1;
-	}
-
-	auto table =
-	  bpf.get_hash_table<stack_key_t, uint64_t>("counts").get_table_offline();
-	std::sort(
-	  table.begin(), table.end(),
-	  [](std::pair<stack_key_t, uint64_t> a,
-	     std::pair<stack_key_t, uint64_t> b) { return a.second < b.second; });
-	auto stacks = bpf.get_stack_table("stack_traces");
-
-	int lost_stacks = 0;
-	for (auto it : table) {
-	std::cout << "PID: " << it.first.pid << " (" << it.first.name << ") "
-	          << "made " << it.second
-	          << " TCP sends on following stack: " << std::endl;
-	if (it.first.kernel_stack >= 0) {
-	  std::cout << "  Kernel Stack:" << std::endl;
-	  auto syms = stacks.get_stack_symbol(it.first.kernel_stack, -1);
-	  for (auto sym : syms)
-	    std::cout << "    " << sym << std::endl;
-	} else {
-	  // -EFAULT normally means the stack is not availiable and not an error
-	  if (it.first.kernel_stack != -EFAULT) {
-	    lost_stacks++;
-	    std::cout << "    [Lost Kernel Stack" << it.first.kernel_stack << "]"
-	              << std::endl;
-	  }
-	}
-	if (it.first.user_stack >= 0) {
-	  std::cout << "  User Stack:" << std::endl;
-	  auto syms = stacks.get_stack_symbol(it.first.user_stack, it.first.pid);
-	  for (auto sym : syms)
-	    std::cout << "    " << sym << std::endl;
-	} else {
-	  // -EFAULT normally means the stack is not availiable and not an error
-	  if (it.first.user_stack != -EFAULT) {
-	    lost_stacks++;
-	    std::cout << "    [Lost User Stack " << it.first.user_stack << "]"
-	              << std::endl;
-	  }
-	}
+	// polling and capturing sigint ----- //
+	signal(SIGINT, SignalHandler);
+	std::cout << "Started tracing, hit Ctrl-C to terminate." << std::endl;
+	while (running) {
+		bpf->poll_perf_buffer("events");
 	}
 
-	if (lost_stacks > 0)
-	std::cout << "Total " << lost_stacks << " stack-traces lost due to "
-	          << "hash collision or stack table full" << std::endl;
-	*/
 	return 0;
 }
