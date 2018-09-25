@@ -5,7 +5,7 @@ OPTIMIZE_FLAGS = -O0 -finline-functions
 CXXFLAGS       = -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wno-sign-compare -Wno-array-bounds -g
 LIBS           = -lbcc
 # INCLUDES     = unused
-TARGET         = warmup
+TARGET         = ebpflow
 # OBJS         = unused
 USR_HEADERS    = colors.h
 
@@ -32,9 +32,7 @@ cleanall: clean
 
 
 # ----- ----- FINAL OBJECT ----- ----- #
-# Builds the project (std c++ only version)
-warmup: warmup.cpp $(OBJS) $(USR_HEADERS)
+ebpflow: ebpflow.cpp $(OBJS) $(USR_HEADERS)
 	$(CXX) $(VERSION) $(CFLAGS) $(CXXFLAGS) $(OPTIMIZE_FLAGS) -o $@ $< $(OBJS) $(INCLUDES) $(LIBS)
-
 
 

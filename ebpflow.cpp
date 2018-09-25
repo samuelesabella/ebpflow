@@ -1,17 +1,17 @@
-/*
- * Basic example of using ebpf in C. 
- */
-
 #include <unistd.h>
 #include <algorithm>
 #include <iostream>
 #include <signal.h>
+#include <fstream>
+#include <sstream>
 
 #include <bcc/BPF.h>
 
 // Credits to: Joel Sjögren
 // https://stackoverflow.com/a/17469726
 #include "colors.h" 
+
+using namespace std;
 
 
 // ----- ----- MACROS ----- ----- //
@@ -37,39 +37,14 @@ ebpf::BPF* bpf;
 Color::Modifier red(Color::FG_RED);
 Color::Modifier def(Color::FG_DEFAULT);
 
-// bpf program ----- //
-const std::string BPF_PROGRAM = R"(
-#include <linux/sched.h>
 
-// define output data structure in C
-struct data_t {
-	u32 pid;
-	u64 ts;
-	char comm[TASK_COMM_LEN];
-};
-BPF_PERF_OUTPUT(events);
-
-int trace(struct pt_regs *ctx) {
-	struct data_t data = {};
-
-	data.pid = bpf_get_current_pid_tgid();
-	data.ts = bpf_ktime_get_ns();
-	bpf_get_current_comm(&data.comm, sizeof(data.comm));
-
-	events.perf_submit(ctx, &data, sizeof(data));
-
-	return 0;
-}
-)";
+// ----- ----- FUNCTION DEFINITIONS ----- ----- //
+string LoadEBPF(string t_filepath);
 
 
 // ----- ----- CALLBACKS ----- ----- //
 /*
  * NAME: HandleOutput
- * INPUT:
- *       cb_cookie    - the char array in which the address will be copied
- *       data - the string containing the MAC address
- *		 data_length
  * RETURN: zero on success; -1 if an error occurres
  */
 void OutputHandler(void* t_bpfctx, void* t_data, int t_datasize) {
@@ -90,8 +65,8 @@ void SignalHandler(int t_s) {
 
 
 // ----- ----- MAIN ----- ----- //
-using namespace std;
 int main(int argc, char** argv) {
+	const std::string BPF_PROGRAM = LoadEBPF("ebpflow.ebpf");
 	bpf = new ebpf::BPF();
 
 	auto init_res = bpf->init(BPF_PROGRAM);
@@ -122,4 +97,19 @@ int main(int argc, char** argv) {
 	}
 
 	return 0;
+}
+
+
+// ----- ----- IMPLEMENTATION ----- ----- //
+/*
+ * NAME: LoadEBPF
+ * RETURN: a string containing the ebpf to be load
+ */
+string LoadEBPF(string t_filepath) {
+	ifstream fileinput;
+	fileinput.open(t_filepath);
+
+	stringstream str_stream;
+	str_stream << fileinput.rdbuf();
+	return str_stream.str();
 }
