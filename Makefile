@@ -7,7 +7,7 @@ LIBS           = -lbcc
 # INCLUDES     = unused
 TARGET         = ebpflow
 # OBJS         = unused
-USR_HEADERS    = colors.h
+USR_HEADERS    = 
 
 
 # ----- ----- PHONY TARGETS ----- ----- #
