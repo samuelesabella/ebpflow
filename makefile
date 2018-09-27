@@ -1,7 +1,7 @@
 # ----- ----- STD COMPILATION OPTIONS ----- ----- #
 CXX            = g++
 VERSION        = -std=c++11
-OPTIMIZE_FLAGS = -O0 -finline-functions
+OPTIMIZE_FLAGS = -O0 -finline-functions -g
 CXXFLAGS       = -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wno-sign-compare -Wno-array-bounds -g
 LIBS           = -lbcc
 # INCLUDES     = unused
