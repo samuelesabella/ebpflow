@@ -8,48 +8,40 @@
 
 #include <bcc/BPF.h>
 
-// Credits to: Joel Sjögren
-// https://stackoverflow.com/a/17469726
-#include "colors.h" 
-
 using namespace std;
 
+/* eBPF 0.7 */
+#define NEW_EBF  1
 
 // ----- ----- MACROS ----- ----- //
-#define ERR(x) { 							\
-    std::cerr << red << x << def << endl; 	\
-}
-
+#define ERR(x) {				\
+    std::cerr << x << endl; 	\
+  }
 
 // ----- ----- GLOBALS ----- ----- //
 int running = 1; // stopping condition
 const int TASK_COMM_LEN = 16;
 ebpf::BPF* bpf;
 
-// colors ----- //
-Color::Modifier red(Color::FG_RED);
-Color::Modifier def(Color::FG_DEFAULT);
-
-
 // ----- ----- STRUCTS AND CLASSES ----- ----- //
 struct ipv4KernelData {
-    __u64 pid;
-    __u64 uid;
-    __u64 saddr;
-    __u64 daddr;
-    __u64 ip; 
-    __u64 port;
-    char task[TASK_COMM_LEN];
+  __u64 pid;
+  __u64 uid;
+  __u64 saddr;
+  __u64 daddr;
+  __u64 ip;
+  __u64 port;
+  char task[TASK_COMM_LEN];
 };
 
 struct ipv6KernelData {
-    __u64 pid;
-    __u64 uid;
-    unsigned __int128 saddr;
-    unsigned __int128 daddr;
-    __u64 ip;
-    __u64 port;
-    char task[TASK_COMM_LEN];
+  __u64 pid;
+  __u64 uid;
+  unsigned __int128 saddr;
+  unsigned __int128 daddr;
+  __u64 ip;
+  __u64 port;
+  char task[TASK_COMM_LEN];
 };
 
 
@@ -59,14 +51,22 @@ string LoadEBPF(string t_filepath);
 
 // ----- ----- CALLBACKS ----- ----- //
 void IPV4Handler(void* t_bpfctx, void* t_data, int t_datasize) {
-	auto event = static_cast<ipv4KernelData*>(t_data);
-	std::cout << event->port << std::endl;
+  auto event = static_cast<ipv4KernelData*>(t_data);
+  // std::cout << event->port << std::endl;
 
+  printf("[pid=%lu][uid=%lu][saddr=%lu][daddr=%lu][port=%lu][ip%lu][%s]\n",
+	 (long unsigned int)event->pid,
+	 (long unsigned int)event->uid,
+	 (long unsigned int)event->saddr,
+	 (long unsigned int)event->daddr,
+	 (long unsigned int)event->port,
+	 (long unsigned int)event->ip,
+	 event->task);
 }
 
 void IPV6Handler(void* t_bpfctx, void* t_data, int t_datasize) {
-	auto event = static_cast<ipv6KernelData*>(t_data);
-	std::cout << event->port << event->uid;
+  auto event = static_cast<ipv6KernelData*>(t_data);
+  std::cout << event->port << event->uid;
 }
 
 
@@ -83,65 +83,73 @@ void SignalHandler(int t_s) {
 
 // ----- ----- MAIN ----- ----- //
 int main(int argc, char** argv) {
-	const std::string BPF_PROGRAM = LoadEBPF("ebpflow.ebpf");
+  const std::string BPF_PROGRAM = LoadEBPF("ebpflow.ebpf");
 
-	bpf = new ebpf::BPF();
+  bpf = new ebpf::BPF();
 
-	auto init_res = bpf->init(BPF_PROGRAM);
-	if (init_res.code() != 0) {
-		ERR(init_res.msg());
-		return 1;
-	} // BPF couldn't be load
+  auto init_res = bpf->init(BPF_PROGRAM);
+  if (init_res.code() != 0) {
+    ERR(init_res.msg());
+    return 1;
+  } // BPF couldn't be load
 
-	// attaching probes ----- //
-	auto attach_res = bpf->attach_kprobe("tcp_v4_connect", "trace_connect_entry");
-	if (attach_res.code() != 0) {
-		ERR(attach_res.msg());
-		return 1;
-	} // Error while attaching the probe
+  // attaching probes ----- //
+  auto attach_res = bpf->attach_kprobe("tcp_v4_connect", "trace_connect_entry");
+  if (attach_res.code() != 0) {
+    ERR(attach_res.msg());
+    return 1;
+  } // Error while attaching the probe
 
-	attach_res = bpf->attach_kprobe("tcp_v4_connect", "trace_connect_v4_return", 0, BPF_PROBE_RETURN);
-	if (attach_res.code() != 0) {
-		ERR(attach_res.msg());
-		return 1;
-	} // Error while attaching the probe
+  attach_res = bpf->attach_kprobe("tcp_v4_connect", "trace_connect_v4_return",
+#ifdef NEW_EBF
+				  0,
+#endif
+				  BPF_PROBE_RETURN);
+  if (attach_res.code() != 0) {
+    ERR(attach_res.msg());
+    return 1;
+  } // Error while attaching the probe
 
-	attach_res = bpf->attach_kprobe("tcp_v6_connect", "trace_connect_v6_return", 0, BPF_PROBE_RETURN);
-	if (attach_res.code() != 0) {
-		ERR(attach_res.msg());
-		return 1;
-	} // Error while attaching the probe
-	
-	// opening output buffer ----- //
-	auto open_res = bpf->open_perf_buffer("ipv4_connect_events", &IPV4Handler);
-	if (open_res.code() != 0) {
-		ERR(open_res.msg());
-		return 1;
-	} // Cannot open buffer
+  attach_res = bpf->attach_kprobe("tcp_v6_connect", "trace_connect_v6_return",
+#ifdef NEW_EBF
+				  0,
+#endif
+				  BPF_PROBE_RETURN);
+  if (attach_res.code() != 0) {
+    ERR(attach_res.msg());
+    return 1;
+  } // Error while attaching the probe
 
-	// polling and capturing sigint ----- //
-	signal(SIGINT, SignalHandler);
-	std::cout << "Started tracing, hit Ctrl-C to terminate." << std::endl;
-	while (running) {
-		bpf->poll_perf_buffer("ipv4_connect_events");
-	}
+  // opening output buffer ----- //
+  auto open_res = bpf->open_perf_buffer("ipv4_connect_events", &IPV4Handler);
+  if (open_res.code() != 0) {
+    ERR(open_res.msg());
+    return 1;
+  } // Cannot open buffer
 
-	return 0;
+  // polling and capturing sigint ----- //
+  signal(SIGINT, SignalHandler);
+  std::cout << "Started tracing, hit Ctrl-C to terminate." << std::endl;
+  while (running) {
+    bpf->poll_perf_buffer("ipv4_connect_events");
+  }
+
+  return 0;
 }
 
 
 // ----- ----- IMPLEMENTATION ----- ----- //
 string StrReplace(string t_target, string t_old, string t_new, int ntimes=INT_MAX) {
-	int i = 0;
-	int oldsize = t_old.length();
-	while (i<ntimes) {
-		int pos = t_target.find(t_old);
-		if (pos != string::npos) {
-			t_target.replace(pos, oldsize, t_new);
-		} 
-		else break;
-	}
-	return t_target;
+  int i = 0;
+  int oldsize = t_old.length();
+  while (i<ntimes) {
+    int pos = t_target.find(t_old);
+    if (pos != string::npos) {
+      t_target.replace(pos, oldsize, t_new);
+    }
+    else break;
+  }
+  return t_target;
 }
 
 /*
@@ -149,21 +157,21 @@ string StrReplace(string t_target, string t_old, string t_new, int ntimes=INT_MA
  * RETURN: a string containing the ebpf to be load
  */
 string LoadEBPF(string t_filepath) {
-	// loading string ----- //
-	ifstream fileinput;
-	fileinput.open(t_filepath);
+  // loading string ----- //
+  ifstream fileinput;
+  fileinput.open(t_filepath);
 
-	stringstream str_stream;
-	str_stream << fileinput.rdbuf();
-	string s = str_stream.str();
+  stringstream str_stream;
+  str_stream << fileinput.rdbuf();
+  string s = str_stream.str();
 
-	// filtr parsing ----- //
-	s = StrReplace(s, "FILTER_PORT_A", "");
-	s = StrReplace(s, "FILTER_RPORT_A", "");
-	s = StrReplace(s, "FILTER_PORT", "");
-	s = StrReplace(s, "FILTER_RPORT", "");
-	s = StrReplace(s, "FILTER_PID", "");
-	s = StrReplace(s, "FILTER", "");
+  // filtr parsing ----- //
+  s = StrReplace(s, "FILTER_PORT_A", "");
+  s = StrReplace(s, "FILTER_RPORT_A", "");
+  s = StrReplace(s, "FILTER_PORT", "");
+  s = StrReplace(s, "FILTER_RPORT", "");
+  s = StrReplace(s, "FILTER_PID", "");
+  s = StrReplace(s, "FILTER", "");
 
-	return s;
+  return s;
 }
