@@ -22,8 +22,7 @@ struct ipv4_data_t {
 };
 
 //crea una tabella BPF per inviare informazioni allo spazio utente attraverso un buffer circolare.
-BPF_PERF_OUTPUT(ipv4_connect_events);
-BPF_PERF_OUTPUT(ipv4_accept_events);
+BPF_PERF_OUTPUT(ipv4_events);
 
 struct ipv6_data_t {
     u64 pid;
@@ -34,8 +33,7 @@ struct ipv6_data_t {
     u64 port;
     char task[TASK_COMM_LEN];
 };
-BPF_PERF_OUTPUT(ipv6_connect_events);
-BPF_PERF_OUTPUT(ipv6_accept_events);
+BPF_PERF_OUTPUT(ipv6_events);
 
 
 //ctx: Registers and BPF context... gli altri sono argomenti della sys-call da monitorare
@@ -89,7 +87,7 @@ static int trace_connect_return(struct pt_regs *ctx, short ipver)
         data4.uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
 
         bpf_get_current_comm(&data4.task, sizeof(data4.task));
-        ipv4_connect_events.perf_submit(ctx, &data4, sizeof(data4));
+        ipv4_events.perf_submit(ctx, &data4, sizeof(data4));
 
     } else /* 6 */ {
         struct ipv6_data_t data6 = {.pid = pid, .ip = ipver};
@@ -100,7 +98,7 @@ static int trace_connect_return(struct pt_regs *ctx, short ipver)
         data6.port = port;
         data6.uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
         bpf_get_current_comm(&data6.task, sizeof(data6.task));
-        ipv6_connect_events.perf_submit(ctx, &data6, sizeof(data6));
+        ipv6_events.perf_submit(ctx, &data6, sizeof(data6));
     }
 
     currsock.delete(&pid); //elimino entry con pid *pid
@@ -146,10 +144,9 @@ int trace_tcp_accept(struct pt_regs *ctx)
         bpf_probe_read(&data4.daddr, sizeof(u32),
             &newsk->__sk_common.skc_daddr);
         data4.port = port;
-        data4.uid = bpf_get_current_uid_gid() & 4294967295;
+        data4.uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
         bpf_get_current_comm(&data4.task, sizeof(data4.task));
-        ipv4_accept_events.perf_submit(ctx, &data4, sizeof(data4));
-
+        ipv4_events.perf_submit(ctx, &data4, sizeof(data4));
     } else if (family == AF_INET6) {
         struct ipv6_data_t data6 = {.pid = pid, .ip = 6};
         bpf_probe_read(&data6.saddr, sizeof(data6.saddr),
@@ -157,9 +154,9 @@ int trace_tcp_accept(struct pt_regs *ctx)
         bpf_probe_read(&data6.daddr, sizeof(data6.daddr),
             &newsk->__sk_common.skc_v6_daddr.in6_u.u6_addr32);
         data6.port = port;
-        data6.uid = bpf_get_current_uid_gid() & 4294967295;
+        data6.uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
         bpf_get_current_comm(&data6.task, sizeof(data6.task));
-        ipv6_accept_events.perf_submit(ctx, &data6, sizeof(data6));
+        ipv6_events.perf_submit(ctx, &data6, sizeof(data6));
     }
     return 0;
 }
