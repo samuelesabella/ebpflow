@@ -1,8 +1,10 @@
 #include <unistd.h>
-#include <algorithm>
-#include <iostream>
 #include <signal.h>
+#include <arpa/inet.h>
+
 #include <fstream>
+#include <iostream>
+#include <string>
 #include <sstream>
 #include <climits>
 
@@ -10,18 +12,11 @@
 
 using namespace std;
 
-/* eBPF 0.7 */
-#define NEW_EBF  1
+#define TASK_COMM_LEN 16
+#define NEW_EBF 1
 
-// ----- ----- MACROS ----- ----- //
-#define ERR(x) {				\
-    std::cerr << x << endl; 	\
-  }
+u_int8_t running = 1;
 
-// ----- ----- GLOBALS ----- ----- //
-int running = 1; // stopping condition
-const int TASK_COMM_LEN = 16;
-ebpf::BPF* bpf;
 
 // ----- ----- STRUCTS AND CLASSES ----- ----- //
 struct ipv4KernelData {
@@ -45,100 +40,39 @@ struct ipv6KernelData {
 };
 
 
-// ----- ----- FUNCTION DEFINITIONS ----- ----- //
-string LoadEBPF(string t_filepath);
-
-
-// ----- ----- CALLBACKS ----- ----- //
-void IPV4Handler(void* t_bpfctx, void* t_data, int t_datasize) {
-  auto event = static_cast<ipv4KernelData*>(t_data);
-  // std::cout << event->port << std::endl;
-
-  printf("[pid=%lu][uid=%lu][saddr=%lu][daddr=%lu][port=%lu][ip%lu][%s]\n",
-	 (long unsigned int)event->pid,
-	 (long unsigned int)event->uid,
-	 (long unsigned int)event->saddr,
-	 (long unsigned int)event->daddr,
-	 (long unsigned int)event->port,
-	 (long unsigned int)event->ip,
-	 event->task);
-}
-
-void IPV6Handler(void* t_bpfctx, void* t_data, int t_datasize) {
-  auto event = static_cast<ipv6KernelData*>(t_data);
-  std::cout << event->port << event->uid;
-}
-
-
+/* ----- ----- MISCELLANEOUS ----- ----- */
 /*
- * NAME: SignalHandler
- * BRIEF: schedule the execution termination
+ * Converts an addr into a string
  */
-void SignalHandler(int t_s) {
-  std::cerr << "\nTerminating..." << std::endl;
-  delete bpf;
-  running = 0;
+char* intoaV4(unsigned int addr, char* buf, u_short bufLen) {
+  char *cp, *retStr;
+  int n;
+
+  cp = &buf[bufLen];
+  *--cp = '\0';
+
+  n = 4;
+  do {
+    u_int byte = addr & 0xff;
+
+    *--cp = byte % 10 + '0';
+    byte /= 10;
+    if(byte > 0) {
+      *--cp = byte % 10 + '0';
+      byte /= 10;
+      if(byte > 0)
+	*--cp = byte + '0';
+    }
+    *--cp = '.';
+    addr >>= 8;
+  } while (--n > 0);
+
+  /* Convert the string to lowercase */
+  retStr = (char*)(cp+1);
+
+  return(retStr);
 }
 
-
-// ----- ----- MAIN ----- ----- //
-int main(int argc, char** argv) {
-  const std::string BPF_PROGRAM = LoadEBPF("ebpflow.ebpf");
-
-  bpf = new ebpf::BPF();
-
-  auto init_res = bpf->init(BPF_PROGRAM);
-  if (init_res.code() != 0) {
-    ERR(init_res.msg());
-    return 1;
-  } // BPF couldn't be load
-
-  // attaching probes ----- //
-  auto attach_res = bpf->attach_kprobe("tcp_v4_connect", "trace_connect_entry");
-  if (attach_res.code() != 0) {
-    ERR(attach_res.msg());
-    return 1;
-  } // Error while attaching the probe
-
-  attach_res = bpf->attach_kprobe("tcp_v4_connect", "trace_connect_v4_return",
-#ifdef NEW_EBF
-				  0,
-#endif
-				  BPF_PROBE_RETURN);
-  if (attach_res.code() != 0) {
-    ERR(attach_res.msg());
-    return 1;
-  } // Error while attaching the probe
-
-  attach_res = bpf->attach_kprobe("tcp_v6_connect", "trace_connect_v6_return",
-#ifdef NEW_EBF
-				  0,
-#endif
-				  BPF_PROBE_RETURN);
-  if (attach_res.code() != 0) {
-    ERR(attach_res.msg());
-    return 1;
-  } // Error while attaching the probe
-
-  // opening output buffer ----- //
-  auto open_res = bpf->open_perf_buffer("ipv4_connect_events", &IPV4Handler);
-  if (open_res.code() != 0) {
-    ERR(open_res.msg());
-    return 1;
-  } // Cannot open buffer
-
-  // polling and capturing sigint ----- //
-  signal(SIGINT, SignalHandler);
-  std::cout << "Started tracing, hit Ctrl-C to terminate." << std::endl;
-  while (running) {
-    bpf->poll_perf_buffer("ipv4_connect_events");
-  }
-
-  return 0;
-}
-
-
-// ----- ----- IMPLEMENTATION ----- ----- //
 string StrReplace(string t_target, string t_old, string t_new, int ntimes=INT_MAX) {
   int i = 0;
   int oldsize = t_old.length();
@@ -152,10 +86,6 @@ string StrReplace(string t_target, string t_old, string t_new, int ntimes=INT_MA
   return t_target;
 }
 
-/*
- * NAME: LoadEBPF
- * RETURN: a string containing the ebpf to be load
- */
 string LoadEBPF(string t_filepath) {
   // loading string ----- //
   ifstream fileinput;
@@ -174,4 +104,110 @@ string LoadEBPF(string t_filepath) {
   s = StrReplace(s, "FILTER", "");
 
   return s;
+}
+
+
+// -------------- CALLBACKS ------------------- //
+static void IPV4Handler(void* t_bpfctx, void* t_data, int t_datasize) {
+  auto event = static_cast<ipv4KernelData*>(t_data);
+  char buf1[32], buf2[32];
+
+  printf("[IPv%lu][pid: %lu][uid: %lu][addr: %s <-> %s][port: %lu][%s]\n",
+	 (long unsigned int)event->ip,
+	 (long unsigned int)event->pid,
+	 (long unsigned int)event->uid,
+	 intoaV4(htonl(event->saddr), buf1, sizeof(buf1)),
+	 intoaV4(htonl(event->daddr), buf2, sizeof(buf2)),
+	 (long unsigned int)event->port,
+	 event->task);
+}
+
+static void IPV6Handler(void* t_bpfctx, void* t_data, int t_datasize) {
+  auto event = static_cast<ipv6KernelData*>(t_data);
+  // char buf1[128], buf2[128];
+
+  printf("[IPv%lu][pid: %lu][uid: %lu][port: %lu][%s]\n",
+   (long unsigned int)event->ip,
+   (long unsigned int)event->pid,
+   (long unsigned int)event->uid,
+   (long unsigned int)event->port,
+   event->task);
+}
+
+static void SignalHandler(int t_s) {
+  std::cerr << "\nTerminating..." << std::endl;
+  running = 0;
+}
+
+int AttachProbe(ebpf::BPF* bpf, string t_kernel_fun, string t_ebpf_fun, bpf_probe_attach_type attach_type) {
+  auto attach_res = bpf->attach_kprobe(t_kernel_fun, t_ebpf_fun, 
+    #if NEW_EBF
+    0,
+    #endif
+    attach_type);
+  if(attach_res.code() != 0) {
+    std::cerr << attach_res.msg() << std::endl;
+    return 0;
+  }
+
+  return 1;
+}
+
+
+/* ******************************************* */
+
+int main() {
+  ebpf::BPF bpf;
+  auto init_res = bpf.init(LoadEBPF("ebpflow.ebpf"));
+  if(init_res.code() != 0) {
+    std::cerr << init_res.msg() << std::endl;
+    return 1;
+  }
+
+  // attaching tcp probes ----- //
+  if(
+    !AttachProbe(&bpf, "tcp_v4_connect", "trace_connect_entry", BPF_PROBE_ENTRY) ||
+    !AttachProbe(&bpf, "tcp_v4_connect", "trace_connect_v4_return", BPF_PROBE_RETURN) || 
+    !AttachProbe(&bpf, "tcp_v6_connect", "trace_connect_v6_return", BPF_PROBE_RETURN) ||
+    !AttachProbe(&bpf, "inet_csk_accept", "trace_tcp_accept",       BPF_PROBE_RETURN)
+  ){
+    return 1;
+  };
+
+  // opening output buffers ----- //
+  auto open_res = bpf.open_perf_buffer("ipv4_connect_events", &IPV4Handler);
+  if(open_res.code() != 0) { 
+    std::cerr << open_res.msg() << std::endl; 
+    return 1; 
+  }
+  auto open_res = bpf.open_perf_buffer("ipv4_accept_events", &IPV4Handler);
+    if(open_res.code() != 0) { 
+      std::cerr << open_res.msg() << std::endl; 
+      return 1; 
+  }  
+  open_res = bpf.open_perf_buffer("ipv6_connect_events", &IPV6Handler);
+  if(open_res.code() != 0) { 
+    std::cerr << open_res.msg() << std::endl; 
+    return 1; 
+  }
+  open_res = bpf.open_perf_buffer("ipv6_accept_events", &IPV6Handler);
+    if(open_res.code() != 0) { 
+      std::cerr << open_res.msg() << std::endl; 
+      return 1; 
+  }  
+
+
+  // polling and capturing sigint ----- //
+  signal(SIGINT, SignalHandler);
+  std::cout << "Started tracing, hit Ctrl-C to terminate." << std::endl;
+  while(running) {
+    // Polling every buffer with a timeout of 500 ms ()
+    bpf.poll_perf_buffer("ipv4_connect_events", 500);
+    bpf.poll_perf_buffer("ipv4_accept_events",  500);
+    bpf.poll_perf_buffer("ipv6_accept_events",  500);
+    bpf.poll_perf_buffer("ipv6_connect_events", 500);
+  }
+
+  cout << "Goodbye" << endl;
+  return 0;
 }
