@@ -7,7 +7,6 @@
 #include <string>
 #include <sstream>
 #include <climits>
-
 #include <bcc/BPF.h>
 
 using namespace std;
@@ -25,7 +24,8 @@ struct ipv4KernelData {
   __u64 saddr;
   __u64 daddr;
   __u64 ip;
-  __u64 port;
+  __u16 loc_port;
+  __u16 dst_port;
   char task[TASK_COMM_LEN];
 };
 
@@ -35,32 +35,40 @@ struct ipv6KernelData {
   unsigned __int128 saddr;
   unsigned __int128 daddr;
   __u64 ip;
-  __u64 port;
+  __u16 loc_port;
+  __u16 dst_port;
   char task[TASK_COMM_LEN];
 };
 
 
 /* ----- ----- MISCELLANEOUS ----- ----- */
-char* intoaV4(unsigned int addr, char* buf, u_short bufLen, int ver) {
+char* intoaV4(unsigned int addr, char* buf, u_short bufLen) {
   char *cp, *retStr;
   int n;
 
   cp = &buf[bufLen];
   *--cp = '\0';
 
-  n = ver==4 ? 4 : 8;
+  n = 4;
   do {
+    // Taking last byte
     u_int byte = addr & 0xff;
 
+    // Printing first cipher
     *--cp = byte % 10 + '0';
     byte /= 10;
+    // Checking if there are more ciphers
     if(byte > 0) {
+      // Writing second cipher
       *--cp = byte % 10 + '0';
       byte /= 10;
+      // Writing third cipher
       if(byte > 0)
-	*--cp = byte + '0';
+        *--cp = byte + '0';
     }
+    // Adding '.' character between decimals
     *--cp = '.';
+    // Shifting address of one byte (next step we'll take last byte)
     addr >>= 8;
   } while (--n > 0);
 
@@ -108,31 +116,29 @@ string LoadEBPF(string t_filepath) {
 static void IPV4Handler(void* t_bpfctx, void* t_data, int t_datasize) {
   auto event = static_cast<ipv4KernelData*>(t_data);
   char buf1[32], buf2[32];
+  
+  if(strcmp("nc", event->task)!=0) return;
 
-  // if (strcmp("nc", event->task) != 0) return;
-  printf("[IPv%lu][pid: %lu][uid: %lu][addr: %s <-> %s][port: %lu][%s]\n",
+  printf("[IPv%lu][pid: %lu][uid: %lu][addr: %s:%d <-> %s:%d][%s]\n",
 	 (long unsigned int)event->ip,
 	 (long unsigned int)event->pid,
 	 (long unsigned int)event->uid,
-	 intoaV4(htonl(event->saddr), buf1, sizeof(buf1), 4),
-	 intoaV4(htonl(event->daddr), buf2, sizeof(buf2), 4),
-	 (long unsigned int)event->port,
+	 intoaV4(htonl(event->saddr), buf1, sizeof(buf1)),
+	 event->loc_port,
+   intoaV4(htonl(event->daddr), buf2, sizeof(buf2)),
+   event->dst_port,
 	 event->task);
 }
 
 static void IPV6Handler(void* t_bpfctx, void* t_data, int t_datasize) {
   auto event = static_cast<ipv6KernelData*>(t_data);
-  char buf1[128], buf2[128];
-
-  // if (strcmp("nc", event->task) != 0) return;
-
-  printf("[IPv%lu][pid: %lu][uid: %lu][addr: %s <-> %s][port: %lu][%s]\n",
+  
+  printf("[IPv%lu][pid: %lu][uid: %lu][port:%d <-> %d][%s]\n",
    (long unsigned int)event->ip,
    (long unsigned int)event->pid,
    (long unsigned int)event->uid,
-   intoaV4(htonl(event->saddr), buf1, sizeof(buf1), 6),
-   intoaV4(htonl(event->daddr), buf2, sizeof(buf2), 6),
-   (long unsigned int)event->port,
+   event->loc_port,
+   event->dst_port,
    event->task);
 }
 
@@ -193,44 +199,34 @@ int main() {
   }
   
   // initializing udp probe ----- //
-  ebpf::BPF udp_probe;
-  init_res = udp_probe.init(LoadEBPF("udp_ebpflow.c"));
-  if(init_res.code() != 0) {
-    std::cerr << init_res.msg() << std::endl;
-    return 1;
-  }
+  // ebpf::BPF udp_probe;
+  // init_res = udp_probe.init(LoadEBPF("udp_ebpflow.c"));
+  // if(init_res.code() != 0) {
+  //   std::cerr << init_res.msg() << std::endl;
+  //   return 1;
+  // }
 
-  // attaching udp probe ----- //
-  if(
-    !AttachWrapper(&udp_probe, "udp_sendmsg", "trace_send_entry", BPF_PROBE_ENTRY) ||
-    !AttachWrapper(&udp_probe, "udp_sendmsg", "trace_send_v4_return", BPF_PROBE_RETURN) || 
-    !AttachWrapper(&udp_probe, "udpv6_sendmsg", "trace_send_v6_return", BPF_PROBE_RETURN) ||
-    !AttachWrapper(&udp_probe, "udp_recvmsg", "trace_receive_v4",       BPF_PROBE_RETURN) ||
-    !AttachWrapper(&udp_probe, "udpv6_recvmsg", "trace_receive_v6",       BPF_PROBE_RETURN)
-  ){
-    return 1;
-  };
-  // opening udp output buffers ----- //
-  open_res = udp_probe.open_perf_buffer("ipv4_send_events", &IPV4Handler);
-  if(open_res.code() != 0) { 
-    std::cerr << open_res.msg() << std::endl; 
-    return 1; 
-  }
-  open_res = udp_probe.open_perf_buffer("ipv6_send_events", &IPV6Handler);
-    if(open_res.code() != 0) { 
-      std::cerr << open_res.msg() << std::endl; 
-      return 1; 
-  }  
-  open_res = udp_probe.open_perf_buffer("ipv4_receive_events", &IPV4Handler);
-  if(open_res.code() != 0) { 
-    std::cerr << open_res.msg() << std::endl; 
-    return 1; 
-  }
-  open_res = udp_probe.open_perf_buffer("ipv6_receive_events", &IPV6Handler);
-  if(open_res.code() != 0) { 
-    std::cerr << open_res.msg() << std::endl; 
-    return 1; 
-  }
+  // // attaching udp probe ----- //
+  // if(
+  //   !AttachWrapper(&udp_probe, "udp_sendmsg", "trace_send_entry", BPF_PROBE_ENTRY) ||
+  //   !AttachWrapper(&udp_probe, "udp_sendmsg", "trace_send_v4_return", BPF_PROBE_RETURN) || 
+  //   !AttachWrapper(&udp_probe, "udpv6_sendmsg", "trace_send_v6_return", BPF_PROBE_RETURN) ||
+  //   !AttachWrapper(&udp_probe, "udp_recvmsg", "trace_receive_v4",       BPF_PROBE_RETURN) ||
+  //   !AttachWrapper(&udp_probe, "udpv6_recvmsg", "trace_receive_v6",       BPF_PROBE_RETURN)
+  // ){
+  //   return 1;
+  // };
+  // // opening udp output buffers ----- //
+  // open_res = udp_probe.open_perf_buffer("ipv4_events", &IPV4Handler);
+  // if(open_res.code() != 0) { 
+  //   std::cerr << open_res.msg() << std::endl; 
+  //   return 1; 
+  // }
+  // open_res = udp_probe.open_perf_buffer("ipv6_events", &IPV6Handler);
+  //   if(open_res.code() != 0) { 
+  //     std::cerr << open_res.msg() << std::endl; 
+  //     return 1; 
+  // }  
 
   // polling and capturing sigint ----- //
   std::cout << "Started tracing, hit Ctrl-C to terminate." << std::endl;
@@ -239,10 +235,8 @@ int main() {
    tcp_probe.poll_perf_buffer("ipv4_events", 50);
    tcp_probe.poll_perf_buffer("ipv6_events",  50);
 
-   // udp_probe.poll_perf_buffer("ipv4_send_events",    50);
-   // udp_probe.poll_perf_buffer("ipv4_receive_events", 50);
-   // udp_probe.poll_perf_buffer("ipv6_send_events",    50);
-   // udp_probe.poll_perf_buffer("ipv6_receive_events", 50);
+   // udp_probe.poll_perf_buffer("ipv4_events",    50);
+   // udp_probe.poll_perf_buffer("ipv6_events",    50);
   }
 
   return 0;

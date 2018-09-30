@@ -4,8 +4,10 @@
 
 #include <uapi/linux/ptrace.h>
 #include <net/sock.h>
+#include <linux/socket.h>
 #include <bcc/proto.h>
 #include <linux/pid_namespace.h>
+
 
 //crea hash map currsock, dove la chiave e' un u32 e il  valore e' un struct sock*
 BPF_HASH(currsock, u32, struct sock *);
@@ -17,7 +19,8 @@ struct ipv4_data_t {
     u64 saddr;
     u64 daddr;
     u64 ip;
-    u64 port;
+    u16 loc_port;
+    u16 dst_port;
     char task[TASK_COMM_LEN];
 };
 
@@ -30,7 +33,8 @@ struct ipv6_data_t {
     unsigned __int128 saddr;
     unsigned __int128 daddr;
     u64 ip;
-    u64 port;
+    u16 loc_port;
+    u16 dst_port;
     char task[TASK_COMM_LEN];
 };
 BPF_PERF_OUTPUT(ipv6_events);
@@ -69,8 +73,10 @@ static int trace_connect_return(struct pt_regs *ctx, short ipver)
 
     // pull in details
     struct sock *skp = *skpp;
-    u16 port = skp->__sk_common.skc_dport;
-    port = ntohs(port);
+    u16 dst_port = skp->__sk_common.skc_dport;
+    dst_port = ntohs(dst_port);
+    u16 loc_port = skp->__sk_common.skc_num;
+    loc_port = ntohs(loc_port);
 
     FILTER_RPORT
     FILTER_PORT
@@ -79,7 +85,8 @@ static int trace_connect_return(struct pt_regs *ctx, short ipver)
         struct ipv4_data_t data4 = {.pid = pid, .ip = ipver};
         data4.saddr = skp->__sk_common.skc_rcv_saddr;
         data4.daddr = skp->__sk_common.skc_daddr;
-        data4.port = port;
+        data4.dst_port = dst_port;
+        data4.loc_port = loc_port;
         /*
             prelevo l'id dell'utente chiamante
             prendendo gli ultimi 32 bit
@@ -95,7 +102,8 @@ static int trace_connect_return(struct pt_regs *ctx, short ipver)
             skp->__sk_common.skc_v6_rcv_saddr.in6_u.u6_addr32);
         bpf_probe_read(&data6.daddr, sizeof(data6.daddr),
             skp->__sk_common.skc_v6_daddr.in6_u.u6_addr32);
-        data6.port = port;
+        data6.dst_port = dst_port;
+        data6.loc_port = loc_port;
         data6.uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
         bpf_get_current_comm(&data6.task, sizeof(data6.task));
         ipv6_events.perf_submit(ctx, &data6, sizeof(data6));
@@ -128,8 +136,10 @@ int trace_tcp_accept(struct pt_regs *ctx)
         return 0;
 
     // pull in details
-    u16 port = 0;
-    bpf_probe_read(&port, sizeof(port), &newsk->__sk_common.skc_num);
+    u16 loc_port = 0;
+    bpf_probe_read(&loc_port, sizeof(loc_port), &newsk->__sk_common.skc_num);
+    u16 dst_port = 0;
+    bpf_probe_read(&dst_port, sizeof(dst_port), &newsk->__sk_common.skc_dport);
 
     FILTER_RPORT_A
     FILTER_PORT_A
@@ -143,9 +153,11 @@ int trace_tcp_accept(struct pt_regs *ctx)
             &newsk->__sk_common.skc_rcv_saddr);
         bpf_probe_read(&data4.daddr, sizeof(u32),
             &newsk->__sk_common.skc_daddr);
-        data4.port = port;
+        data4.loc_port = loc_port;
+        data4.dst_port = dst_port;
         data4.uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
         bpf_get_current_comm(&data4.task, sizeof(data4.task));
+
         ipv4_events.perf_submit(ctx, &data4, sizeof(data4));
     } else if (family == AF_INET6) {
         struct ipv6_data_t data6 = {.pid = pid, .ip = 6};
@@ -153,7 +165,8 @@ int trace_tcp_accept(struct pt_regs *ctx)
             &newsk->__sk_common.skc_v6_rcv_saddr.in6_u.u6_addr32);
         bpf_probe_read(&data6.daddr, sizeof(data6.daddr),
             &newsk->__sk_common.skc_v6_daddr.in6_u.u6_addr32);
-        data6.port = port;
+        data6.loc_port = loc_port;
+        data6.dst_port = dst_port;
         data6.uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
         bpf_get_current_comm(&data6.task, sizeof(data6.task));
         ipv6_events.perf_submit(ctx, &data6, sizeof(data6));
