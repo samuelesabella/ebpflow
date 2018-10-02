@@ -26,6 +26,7 @@ struct ipv4KernelData {
   __u64 ip;
   __u16 loc_port;
   __u16 dst_port;
+  __u16 is_client
   char task[TASK_COMM_LEN];
 };
 
@@ -37,6 +38,7 @@ struct ipv6KernelData {
   __u64 ip;
   __u16 loc_port;
   __u16 dst_port;
+  __u16 is_client;
   char task[TASK_COMM_LEN];
 };
 
@@ -116,8 +118,6 @@ string LoadEBPF(string t_filepath) {
 static void IPV4Handler(void* t_bpfctx, void* t_data, int t_datasize) {
   auto event = static_cast<ipv4KernelData*>(t_data);
   char buf1[32], buf2[32];
-  
-  if(strcmp("nc", event->task)!=0) return;
 
   printf("[IPv%lu][pid: %lu][uid: %lu][addr: %s:%d <-> %s:%d][%s]\n",
 	 (long unsigned int)event->ip,
@@ -132,7 +132,7 @@ static void IPV4Handler(void* t_bpfctx, void* t_data, int t_datasize) {
 
 static void IPV6Handler(void* t_bpfctx, void* t_data, int t_datasize) {
   auto event = static_cast<ipv6KernelData*>(t_data);
-  
+
   printf("[IPv%lu][pid: %lu][uid: %lu][port:%d <-> %d][%s]\n",
    (long unsigned int)event->ip,
    (long unsigned int)event->pid,

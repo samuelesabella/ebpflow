@@ -21,6 +21,7 @@ struct ipv4_data_t {
     u64 ip;
     u16 loc_port;
     u16 dst_port;
+    u16 is_client;
     char task[TASK_COMM_LEN];
 };
 
@@ -35,6 +36,7 @@ struct ipv6_data_t {
     u64 ip;
     u16 loc_port;
     u16 dst_port;
+    u16 is_client;
     char task[TASK_COMM_LEN];
 };
 BPF_PERF_OUTPUT(ipv6_events);
