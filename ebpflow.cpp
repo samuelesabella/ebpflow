@@ -199,34 +199,34 @@ int main() {
   }
   
   // initializing udp probe ----- //
-  // ebpf::BPF udp_probe;
-  // init_res = udp_probe.init(LoadEBPF("udp_ebpflow.c"));
-  // if(init_res.code() != 0) {
-  //   std::cerr << init_res.msg() << std::endl;
-  //   return 1;
-  // }
+  ebpf::BPF udp_probe;
+  init_res = udp_probe.init(LoadEBPF("udp_ebpflow.c"));
+  if(init_res.code() != 0) {
+    std::cerr << init_res.msg() << std::endl;
+    return 1;
+  }
 
   // // attaching udp probe ----- //
-  // if(
-  //   !AttachWrapper(&udp_probe, "udp_sendmsg", "trace_send_entry", BPF_PROBE_ENTRY) ||
-  //   !AttachWrapper(&udp_probe, "udp_sendmsg", "trace_send_v4_return", BPF_PROBE_RETURN) || 
-  //   !AttachWrapper(&udp_probe, "udpv6_sendmsg", "trace_send_v6_return", BPF_PROBE_RETURN) ||
-  //   !AttachWrapper(&udp_probe, "udp_recvmsg", "trace_receive_v4",       BPF_PROBE_RETURN) ||
-  //   !AttachWrapper(&udp_probe, "udpv6_recvmsg", "trace_receive_v6",       BPF_PROBE_RETURN)
-  // ){
-  //   return 1;
-  // };
-  // // opening udp output buffers ----- //
-  // open_res = udp_probe.open_perf_buffer("ipv4_events", &IPV4Handler);
-  // if(open_res.code() != 0) { 
-  //   std::cerr << open_res.msg() << std::endl; 
-  //   return 1; 
-  // }
-  // open_res = udp_probe.open_perf_buffer("ipv6_events", &IPV6Handler);
-  //   if(open_res.code() != 0) { 
-  //     std::cerr << open_res.msg() << std::endl; 
-  //     return 1; 
-  // }  
+  if(
+    !AttachWrapper(&udp_probe, "udp_sendmsg", "trace_send_entry", BPF_PROBE_ENTRY) ||
+    !AttachWrapper(&udp_probe, "udp_sendmsg", "trace_send_v4_return", BPF_PROBE_RETURN) || 
+    !AttachWrapper(&udp_probe, "udpv6_sendmsg", "trace_send_v6_return", BPF_PROBE_RETURN) ||
+    !AttachWrapper(&udp_probe, "udp_recvmsg", "trace_receive_v4",       BPF_PROBE_RETURN) ||
+    !AttachWrapper(&udp_probe, "udpv6_recvmsg", "trace_receive_v6",       BPF_PROBE_RETURN)
+  ){
+    return 1;
+  };
+  // opening udp output buffers ----- //
+  open_res = udp_probe.open_perf_buffer("ipv4_events", &IPV4Handler);
+  if(open_res.code() != 0) { 
+    std::cerr << open_res.msg() << std::endl; 
+    return 1; 
+  }
+  open_res = udp_probe.open_perf_buffer("ipv6_events", &IPV6Handler);
+    if(open_res.code() != 0) { 
+      std::cerr << open_res.msg() << std::endl; 
+      return 1; 
+  }  
 
   // polling and capturing sigint ----- //
   std::cout << "Started tracing, hit Ctrl-C to terminate." << std::endl;
@@ -235,8 +235,8 @@ int main() {
    tcp_probe.poll_perf_buffer("ipv4_events", 50);
    tcp_probe.poll_perf_buffer("ipv6_events",  50);
 
-   // udp_probe.poll_perf_buffer("ipv4_events",    50);
-   // udp_probe.poll_perf_buffer("ipv6_events",    50);
+   udp_probe.poll_perf_buffer("ipv4_events",    50);
+   udp_probe.poll_perf_buffer("ipv6_events",    50);
   }
 
   return 0;
