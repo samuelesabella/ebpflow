@@ -19,23 +19,25 @@ u_int8_t running = 1;
 
 // ----- ----- STRUCTS AND CLASSES ----- ----- //
 struct ipv4KernelData {
-  __u64 pid;
-  __u64 uid;
-  __u64 saddr;
-  __u64 daddr;
-  __u64 ip;
+  __u32 pid;
+  __u32 uid;
+  __u32 gid;
+  __u32 saddr;
+  __u32 daddr;
+  __u16 ip;
   __u16 loc_port;
   __u16 dst_port;
-  __u16 is_client
+  __u16 is_client;
   char task[TASK_COMM_LEN];
 };
 
 struct ipv6KernelData {
-  __u64 pid;
-  __u64 uid;
+  __u32 pid;
+  __u32 uid;
+  __u32 gid;
   unsigned __int128 saddr;
   unsigned __int128 daddr;
-  __u64 ip;
+  __u16 ip;
   __u16 loc_port;
   __u16 dst_port;
   __u16 is_client;
@@ -102,14 +104,6 @@ string LoadEBPF(string t_filepath) {
   str_stream << fileinput.rdbuf();
   string s = str_stream.str();
 
-  // filtr parsing ----- //
-  s = StrReplace(s, "FILTER_PORT_A", "");
-  s = StrReplace(s, "FILTER_RPORT_A", "");
-  s = StrReplace(s, "FILTER_PORT", "");
-  s = StrReplace(s, "FILTER_RPORT", "");
-  s = StrReplace(s, "FILTER_PID", "");
-  s = StrReplace(s, "FILTER", "");
-
   return s;
 }
 
@@ -119,10 +113,14 @@ static void IPV4Handler(void* t_bpfctx, void* t_data, int t_datasize) {
   auto event = static_cast<ipv4KernelData*>(t_data);
   char buf1[32], buf2[32];
 
-  printf("[IPv%lu][pid: %lu][uid: %lu][addr: %s:%d <-> %s:%d][%s]\n",
+  const char* is_client = event->is_client ? "send/connect" : "receive/accept";
+
+  printf("%s [IPv%lu][pid: %lu][uid: %lu][gid: %lu][addr: %s:%d <-> %s:%d][%s]\n",
+    is_client,
 	 (long unsigned int)event->ip,
 	 (long unsigned int)event->pid,
 	 (long unsigned int)event->uid,
+   (long unsigned int)event->gid,
 	 intoaV4(htonl(event->saddr), buf1, sizeof(buf1)),
 	 event->loc_port,
    intoaV4(htonl(event->daddr), buf2, sizeof(buf2)),
@@ -133,10 +131,14 @@ static void IPV4Handler(void* t_bpfctx, void* t_data, int t_datasize) {
 static void IPV6Handler(void* t_bpfctx, void* t_data, int t_datasize) {
   auto event = static_cast<ipv6KernelData*>(t_data);
 
-  printf("[IPv%lu][pid: %lu][uid: %lu][port:%d <-> %d][%s]\n",
+  const char* is_client = event->is_client ? "send/connect" : "receive/accept";
+  
+  printf("%s [IPv%lu][pid: %lu][uid: %lu][gid: %lu][port:%d <-> %d][%s]\n",
+    is_client,
    (long unsigned int)event->ip,
    (long unsigned int)event->pid,
    (long unsigned int)event->uid,
+   (long unsigned int)event->gid,
    event->loc_port,
    event->dst_port,
    event->task);
@@ -232,11 +234,11 @@ int main() {
   std::cout << "Started tracing, hit Ctrl-C to terminate." << std::endl;
   signal(SIGINT, SignalHandler);
   while(running) {
-   tcp_probe.poll_perf_buffer("ipv4_events", 50);
-   tcp_probe.poll_perf_buffer("ipv6_events",  50);
+    tcp_probe.poll_perf_buffer("ipv4_events", 50);
+    tcp_probe.poll_perf_buffer("ipv6_events",  50);
 
-   udp_probe.poll_perf_buffer("ipv4_events",    50);
-   udp_probe.poll_perf_buffer("ipv6_events",    50);
+    udp_probe.poll_perf_buffer("ipv4_events",    50);
+    udp_probe.poll_perf_buffer("ipv6_events",    50);
   }
 
   return 0;
