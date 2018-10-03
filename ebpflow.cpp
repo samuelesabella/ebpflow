@@ -2,6 +2,10 @@
 #include <signal.h>
 #include <arpa/inet.h>
 
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -18,16 +22,23 @@ u_int8_t running = 1;
 
 
 // ----- ----- STRUCTS AND CLASSES ----- ----- //
+/*
+ * proto flag: 
+ *    - 601  for tcp client
+ *    - 602  for tcp server
+ *    - 1701 for upd listen
+ *    - 1702 for udp send  
+ */
 struct ipv4KernelData {
   __u32 pid;
   __u32 uid;
   __u32 gid;
-  __u32 saddr;
-  __u32 daddr;
-  __u16 ip;
+  __u16 proto;
   __u16 loc_port;
   __u16 dst_port;
-  __u16 is_client;
+  __u16 ip;
+  __u32 saddr;
+  __u32 daddr;
   char task[TASK_COMM_LEN];
 };
 
@@ -35,12 +46,12 @@ struct ipv6KernelData {
   __u32 pid;
   __u32 uid;
   __u32 gid;
-  unsigned __int128 saddr;
-  unsigned __int128 daddr;
-  __u16 ip;
+  __u16 proto;
   __u16 loc_port;
   __u16 dst_port;
-  __u16 is_client;
+  __u16 ip;
+  unsigned __int128 saddr;
+  unsigned __int128 daddr;
   char task[TASK_COMM_LEN];
 };
 
@@ -82,17 +93,14 @@ char* intoaV4(unsigned int addr, char* buf, u_short bufLen) {
   return(retStr);
 }
 
-string StrReplace(string t_target, string t_old, string t_new, int ntimes=INT_MAX) {
-  int i = 0;
-  int oldsize = t_old.length();
-  while (i<ntimes) {
-    int pos = t_target.find(t_old);
-    if (pos != string::npos) {
-      t_target.replace(pos, oldsize, t_new);
-    }
-    else break;
+char* intoaV6(unsigned __int128 addr, char* buf, u_short bufLen) {
+  char *ret = (char*)inet_ntop(AF_INET6, &addr, buf, bufLen);
+
+  if(ret == NULL) {
+    buf[0] = '\0';
   }
-  return t_target;
+
+  return(buf);
 }
 
 string LoadEBPF(string t_filepath) {
@@ -109,39 +117,66 @@ string LoadEBPF(string t_filepath) {
 
 
 // -------------- CALLBACKS ------------------- //
+int event_type (int t_proto, char* t_buffer, int t_size) {
+  switch (t_proto) {
+    case 601:
+      strncpy(t_buffer, "TCP/s",  t_size);
+      break;
+    case 602:
+      strncpy(t_buffer, "TCP/c",  t_size);
+      break;
+    case 1701:
+      strncpy(t_buffer, "UDP/l", t_size);
+      break;
+    case 1702:
+      strncpy(t_buffer, "UDP/s", t_size);
+      break;
+    default:
+      return -1;
+  }
+  return 1;
+}
+
 static void IPV4Handler(void* t_bpfctx, void* t_data, int t_datasize) {
   auto event = static_cast<ipv4KernelData*>(t_data);
   char buf1[32], buf2[32];
 
-  const char* is_client = event->is_client ? "send/connect" : "receive/accept";
+  char e_type[16];
+  event_type(event->proto, e_type, sizeof(e_type));
 
-  printf("%s [IPv%lu][pid: %lu][uid: %lu][gid: %lu][addr: %s:%d <-> %s:%d][%s]\n",
-    is_client,
-	 (long unsigned int)event->ip,
-	 (long unsigned int)event->pid,
-	 (long unsigned int)event->uid,
-   (long unsigned int)event->gid,
-	 intoaV4(htonl(event->saddr), buf1, sizeof(buf1)),
-	 event->loc_port,
-   intoaV4(htonl(event->daddr), buf2, sizeof(buf2)),
-   event->dst_port,
-	 event->task);
+  printf("[%s][IPv%d][pid: %lu][uid: %lu][gid: %lu][addr: %s:%d <-> %s:%d][%s]\n",
+    e_type,
+	  event->ip,
+	  (long unsigned int)event->pid,
+	  (long unsigned int)event->uid,
+    (long unsigned int)event->gid,
+	  intoaV4(htonl(event->saddr), buf1, sizeof(buf1)),
+	  event->loc_port,
+    intoaV4(htonl(event->daddr), buf2, sizeof(buf2)),
+    event->dst_port,
+	  event->task
+  );
 }
 
 static void IPV6Handler(void* t_bpfctx, void* t_data, int t_datasize) {
   auto event = static_cast<ipv6KernelData*>(t_data);
+  char buf1[128], buf2[128];
 
-  const char* is_client = event->is_client ? "send/connect" : "receive/accept";
+  char e_type[16];
+  event_type(event->proto, e_type, sizeof(e_type));
   
-  printf("%s [IPv%lu][pid: %lu][uid: %lu][gid: %lu][port:%d <-> %d][%s]\n",
-    is_client,
-   (long unsigned int)event->ip,
-   (long unsigned int)event->pid,
-   (long unsigned int)event->uid,
-   (long unsigned int)event->gid,
-   event->loc_port,
-   event->dst_port,
-   event->task);
+  printf("[%s][IPv%d][pid: %lu][uid: %lu][gid: %lu][%s:%d <-> %s:%d][%s]\n",
+    e_type,
+    event->ip,
+    (long unsigned int)event->pid,
+    (long unsigned int)event->uid,
+    (long unsigned int)event->gid,
+    intoaV6(htonl(event->saddr), buf1, sizeof(buf1)),
+    event->loc_port,
+    intoaV6(htonl(event->saddr), buf2, sizeof(buf2)),
+    event->dst_port,
+    event->task
+  );
 }
 
 static void SignalHandler(int t_s) {
