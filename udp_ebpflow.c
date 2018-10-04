@@ -71,12 +71,21 @@ int trace_send_entry(struct pt_regs* ctx, struct sock* sk){
  * the entry (created in trace_connect_entry) removed from the table
  */
 static int trace_send_return(struct pt_regs *ctx, short ipver){
+    u16 dst_port;
+    u16 loc_port;
+    u64 guid;
+    u32 pid;
+    u32 uid;
+    u32 gid;
+    int ret;
+    struct sock **skpp;
+
+    pid = bpf_get_current_pid_tgid();
+
     // udp_sendmsg return value
-    int ret = PT_REGS_RC(ctx);
+    ret = PT_REGS_RC(ctx);
 
     // Checking if entry is present
-    u32 pid = bpf_get_current_pid_tgid();
-    struct sock **skpp;
     skpp = currsock.lookup(&pid);
     if (skpp == NULL || ret == -1) {
         return 0;   // missed entry
@@ -84,15 +93,13 @@ static int trace_send_return(struct pt_regs *ctx, short ipver){
     struct sock *skp = *skpp;
 
     // User id and group id
-    u64 guid = bpf_get_current_uid_gid();
-    u32 uid = guid & 0xFFFFFFFF;
-    u32 gid = (guid >> 32) & 0xFFFFFFFF;
+    guid = bpf_get_current_uid_gid();
+    uid = guid & 0xFFFFFFFF;
+    gid = (guid >> 32) & 0xFFFFFFFF;
     
     // Ports
-    u16 loc_port = 0;
     bpf_probe_read(&loc_port, sizeof(loc_port), &skp->__sk_common.skc_dport);
     loc_port = ntohs(loc_port);
-    u16 dst_port = 0;
     bpf_probe_read(&dst_port, sizeof(dst_port), &skp->__sk_common.skc_num);
     dst_port = ntohs(dst_port);
 

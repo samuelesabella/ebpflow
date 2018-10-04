@@ -100,23 +100,28 @@ static int trace_connect_return(struct pt_regs *ctx, short ipver) {
     u32 gid = (guid >> 32) & 0xFFFFFFFF;
 
     // Ports
-    u16 dst_port = skp->__sk_common.skc_dport;
-    dst_port = ntohs(dst_port);
-    u16 loc_port = skp->__sk_common.skc_num;
+    u16 loc_port = 0;
+    bpf_probe_read(&loc_port, sizeof(loc_port), &skp->__sk_common.skc_dport);
     loc_port = ntohs(loc_port);
+    u16 dst_port = 0;
+    bpf_probe_read(&dst_port, sizeof(dst_port), &skp->__sk_common.skc_num);
+    dst_port = ntohs(dst_port);
 
     if (ipver == 4) {
         struct ipv4_data_t data4 = {
             .pid = pid, 
             .uid = uid,
             .gid = gid,
-            .proto = 601,
+            .proto = 601, // tcp client
             .dst_port = dst_port,
             .loc_port = loc_port,
-            .ip = ipver,
-            .saddr = skp->__sk_common.skc_rcv_saddr,
-            .daddr = skp->__sk_common.skc_daddr,
+            .ip = ipver, 
         };
+        // Reading addresses
+        bpf_probe_read(&data4.saddr, sizeof(data4.saddr),
+            &skp->__sk_common.skc_rcv_saddr);
+        bpf_probe_read(&data4.daddr, sizeof(data4.saddr),
+            &skp->__sk_common.skc_daddr);
         // Storing command that originated event
         bpf_get_current_comm(&data4.task, sizeof(data4.task));
         // Submitting event to buffer
@@ -128,7 +133,7 @@ static int trace_connect_return(struct pt_regs *ctx, short ipver) {
             .pid = pid, 
             .uid = uid,
             .gid = gid,
-            .proto = 601,
+            .proto = 601, // tcp client
             .dst_port = dst_port,
             .loc_port = loc_port,
             .ip = ipver,
@@ -183,8 +188,10 @@ int trace_tcp_accept(struct pt_regs *ctx) {
     // Getting ports
     u16 loc_port = 0;
     bpf_probe_read(&loc_port, sizeof(loc_port), &newsk->__sk_common.skc_num);
+    loc_port = ntohs(loc_port);
     u16 dst_port = 0;
     bpf_probe_read(&dst_port, sizeof(dst_port), &newsk->__sk_common.skc_dport);
+    dst_port = ntohs(dst_port);
 
     // Discriminating ipv4/ipv6 based on family flag
     u16 family = 0;
@@ -195,7 +202,7 @@ int trace_tcp_accept(struct pt_regs *ctx) {
             .pid = pid, 
             .uid = uid,
             .gid = gid,
-            .proto = 602,
+            .proto = 602, // tcp server
             .dst_port = dst_port,
             .loc_port = loc_port,
             .ip = 4,
@@ -215,7 +222,7 @@ int trace_tcp_accept(struct pt_regs *ctx) {
             .pid = pid, 
             .uid = uid,
             .gid = gid,
-            .proto = 602,
+            .proto = 602, // tcp server
             .dst_port = dst_port,
             .loc_port = loc_port,
             .ip = 6,
