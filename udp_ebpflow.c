@@ -164,30 +164,33 @@ static int trace_receive(struct pt_regs *ctx, struct sock *sk, short ipver){
 
     u16 family = 0;
     bpf_probe_read(&family, sizeof(family), &sk->__sk_common.skc_family);
+    
     if(family != AF_INET && family != AF_INET6) return 0;
 
     if (ipver == 4) {
         struct ipv4_data_t data4 = {.pid = pid, .ip = ipver};
-        data4.saddr = sk->__sk_common.skc_rcv_saddr;
-        data4.daddr = sk->__sk_common.skc_daddr;
-        data4.dst_port = dst_port;
-        data4.loc_port = loc_port;
-        data4.uid = uid;
-        data4.uid = gid;
+        bpf_probe_read(&data4.saddr, sizeof(data4.saddr), &sk->__sk_common.skc_rcv_saddr);
+	bpf_probe_read(&data4.daddr, sizeof(data4.daddr), &sk->__sk_common.skc_daddr);
+	bpf_probe_read(&data4.dst_port, sizeof(data4.dst_port), &dst_port);
+	bpf_probe_read(&data4.loc_port, sizeof(data4.loc_port), &loc_port);
+	bpf_probe_read(&data4.uid, sizeof(data4.uid), &uid);
+	bpf_probe_read(&data4.uid, sizeof(data4.uid), &gid);
+	
         bpf_get_current_comm(&data4.task, sizeof(data4.task));
         ipv4_events.perf_submit(ctx, &data4, sizeof(data4));
     } else if (ipver == 6) {
         struct ipv6_data_t data6 = {.pid = pid, .ip = ipver};
-        data6.saddr = sk->__sk_common.skc_rcv_saddr;
-        data6.daddr = sk->__sk_common.skc_daddr;
-        data6.dst_port = dst_port;
-        data6.loc_port = loc_port;
-        data6.uid = uid;
-        data6.gid = gid;
+        bpf_probe_read(&data6.saddr, sizeof(data6.saddr), &sk->__sk_common.skc_rcv_saddr);
+	bpf_probe_read(&data6.daddr, sizeof(data6.daddr), &sk->__sk_common.skc_daddr);
+	bpf_probe_read(&data6.dst_port, sizeof(data6.dst_port), &dst_port);
+	bpf_probe_read(&data6.loc_port, sizeof(data6.loc_port), &loc_port);
+	bpf_probe_read(&data6.uid, sizeof(data6.uid), &uid);
+	bpf_probe_read(&data6.gid, sizeof(data6.gid), &gid);
+	
         bpf_get_current_comm(&data6.task, sizeof(data6.task));
         ipv6_events.perf_submit(ctx, &data6, sizeof(data6));
     }
-
+    
     return 0;
 }
 
