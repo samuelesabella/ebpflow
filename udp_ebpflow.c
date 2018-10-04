@@ -7,65 +7,88 @@
 #include <bcc/proto.h>
 #include <linux/pid_namespace.h>
 
-//crea hash map currsock, dove la chiave e' un u32 e il  valore e' un struct sock*
+
+// Creating hash table with <key: pid, value: struct sock*>
 BPF_HASH(currsock, u32, struct sock *);
 
 
-// separate data structs for ipv4 and ipv6
+// ----- ----- USER-KERNEL DATA ----- ----- //
+/*
+ * proto flag: 
+ *    - 601  for tcp client
+ *    - 602  for tcp server
+ *    - 1701 for upd listen
+ *    - 1702 for udp send  
+ */
 struct ipv4_data_t {
     u32 pid;
     u32 uid;
     u32 gid;
-    u32 saddr;
-    u32 daddr;
-    u16 ip;
+    u16 proto;
     u16 loc_port;
     u16 dst_port;
-    u16 is_client;
+    u16 ip;
+    u32 saddr;
+    u32 daddr;
     char task[TASK_COMM_LEN];
 };
-
-//crea una tabella BPF per inviare informazioni allo spazio utente attraverso un buffer circolare.
 BPF_PERF_OUTPUT(ipv4_events);
 
 struct ipv6_data_t {
     u32 pid;
     u32 uid;
     u32 gid;
-    unsigned __int128 saddr;
-    unsigned __int128 daddr;
-    u32 ip;
+    u16 proto;
     u16 loc_port;
     u16 dst_port;
-    u16 is_client;
+    u16 ip;
+    unsigned __int128 saddr;
+    unsigned __int128 daddr;
     char task[TASK_COMM_LEN];
 };
 BPF_PERF_OUTPUT(ipv6_events);
 
+
+/* ******************************************* */
+/* ******************************************* */
+
+/*
+ * Initializes hash entries, needs to be attached
+ * to 'udp_sendmsg' function on entry (BPF_PROBE_ENTRY flag)
+ * ARGS: 
+ *      ctx - ebpf context
+ *      sk  - socket passed to the 'udp_sendmsg'
+ */
 int trace_send_entry(struct pt_regs* ctx, struct sock* sk){
     u32 pid = bpf_get_current_pid_tgid();
-
     currsock.update(&pid, &sk);
     return 0;
 }
 
+/*
+ * Handles the termination of send events. If connect
+ * succed data is collected, passed to user level and
+ * the entry (created in trace_connect_entry) removed from the table
+ */
 static int trace_send_return(struct pt_regs *ctx, short ipver){
+    // udp_sendmsg return value
     int ret = PT_REGS_RC(ctx);
+
+    // Checking if entry is present
     u32 pid = bpf_get_current_pid_tgid();
-
-    u64 guid = bpf_get_current_uid_gid();
-    u32 uid = guid & 0xFFFFFFFF;
-    u32 gid = (guid >> 32) & 0xFFFFFFFF;
-
     struct sock **skpp;
     skpp = currsock.lookup(&pid);
     if (skpp == NULL || ret == -1) {
         return 0;   // missed entry
     }
 
-    // pull in details
-    struct sock *skp = *skpp;
+    // User id and group id
+    u64 guid = bpf_get_current_uid_gid();
+    u32 uid = guid & 0xFFFFFFFF;
+    u32 gid = (guid >> 32) & 0xFFFFFFFF;
     
+    // Ports
+    struct sock *skp = *skpp;
     u16 dst_port = skp->__sk_common.skc_dport;
     dst_port = ntohs(dst_port);
     u16 loc_port = skp->__sk_common.skc_num;
@@ -100,17 +123,28 @@ static int trace_send_return(struct pt_regs *ctx, short ipver){
     return 0;
 }
 
-int trace_send_v4_return(struct pt_regs *ctx) //IPV4
-{
+/*
+ * Discriminate ip version for 'udp_send' returns event. Ipv4 and Ipv6 
+ * can be discriminated by attaching this functions respectively to udp_sendmsg
+ * and udpv6_sendmsg (BPF_PROBE_RETURN flag)
+ */
+int trace_send_v4_return(struct pt_regs *ctx) {
     return trace_send_return(ctx, 4);
 }
-
-int trace_send_v6_return(struct pt_regs *ctx) //IPV6
-{
+int trace_send_v6_return(struct pt_regs *ctx) {
     return trace_send_return(ctx, 6);
 }
 
 
+/* ******************************************* */
+/* ******************************************* */
+
+
+/*
+ * Handles the termination of receive events. If connect
+ * succed data is collected, passed to user level and
+ * the entry (created in trace_connect_entry) removed from the table
+ */
 static int trace_receive(struct pt_regs *ctx, struct sock *sk, short ipver){
     u32 pid = bpf_get_current_pid_tgid();
 
@@ -157,10 +191,14 @@ static int trace_receive(struct pt_regs *ctx, struct sock *sk, short ipver){
     return 0;
 }
 
+/*
+ * Discriminate ip version for 'udp_receive' returns event. Ipv4 and Ipv6 
+ * can be discriminated by attaching this functions respectively to udp_recvmsg
+ * and udpv6_recvmsg (BPF_PROBE_RETURN flag)
+ */
 int trace_receive_v4(struct pt_regs *ctx, struct sock *sk) {
     return trace_receive(ctx, sk, 4);
 }
-
 int trace_receive_v6(struct pt_regs *ctx, struct sock *sk) {
     return trace_receive(ctx, sk, 6);
 }

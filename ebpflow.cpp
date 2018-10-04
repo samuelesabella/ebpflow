@@ -132,7 +132,8 @@ int event_type (int t_proto, char* t_buffer, int t_size) {
       strncpy(t_buffer, "UDP/s", t_size);
       break;
     default:
-      return -1;
+      strncpy(t_buffer, " - ",  t_size);
+      break;
   }
   return 1;
 }

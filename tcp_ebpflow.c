@@ -51,8 +51,9 @@ struct ipv6_data_t {
 BPF_PERF_OUTPUT(ipv6_events);
 
 
-// ----- ----- ------ ----- ----- //
-// ----- ----- ------ ----- ----- //
+/* ******************************************* */
+/* ******************************************* */
+
 
 /*
  * Initializes hash entries, needs to be atached
@@ -62,7 +63,6 @@ BPF_PERF_OUTPUT(ipv6_events);
  *      sk  - socket passed to the 'tcp_vx_connect'
  */
 int trace_connect_entry(struct pt_regs *ctx, struct sock *sk) {
-    // Creating table entry
     u32 pid = bpf_get_current_pid_tgid();
     currsock.update(&pid, &sk);
     return 0;
@@ -94,12 +94,12 @@ static int trace_connect_return(struct pt_regs *ctx, short ipver) {
     }
     struct sock *skp = *skpp;
 
-    // Getting user and group id
+    // User and group id
     u64 guid = bpf_get_current_uid_gid();
     u32 uid = guid & 0xFFFFFFFF;
     u32 gid = (guid >> 32) & 0xFFFFFFFF;
 
-    // Getting ports
+    // Ports
     u16 dst_port = skp->__sk_common.skc_dport;
     dst_port = ntohs(dst_port);
     u16 loc_port = skp->__sk_common.skc_num;
@@ -150,7 +150,7 @@ static int trace_connect_return(struct pt_regs *ctx, short ipver) {
 }
 
 /*
- * Discriminate ip version for 'tcp_v6_connect' returns event. Ipv4 and Ipv6 
+ * Discriminate ip version for 'tcp_vx_connect' returns event. Ipv4 and Ipv6 
  * can be discriminated by attaching this functions respectively to tcp_v4_connect
  * and tcp_v6_connect (BPF_PROBE_RETURN flag)
  */
