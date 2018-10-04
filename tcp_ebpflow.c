@@ -74,20 +74,26 @@ int trace_connect_entry(struct pt_regs *ctx, struct sock *sk) {
  * the entry (created in trace_connect_entry) removed from the table
  */
 static int trace_connect_return(struct pt_regs *ctx, short ipver) {
-    // tcp_vx_connect return value
-    int ret = PT_REGS_RC(ctx);
-    // Getting pid for lookup
-    u32 pid = bpf_get_current_pid_tgid();
+    int ret;
+    u32 pid;
+    u64 guid;
+    u32 gid;
+    u32 uid;
+    u16 loc_port;
+    u16 dst_port;
+    struct sock **skpp;
 
+    // tcp_vx_connect return value
+    pid = bpf_get_current_pid_tgid();
+    ret = PT_REGS_RC(ctx);
     if (ret != 0) {
         // failed to send SYNC packet, may not have populated
         // socket __sk_common.{skc_rcv_saddr, ...}
         currsock.delete(&pid); // removing enrty from hash table
         return 0;
     }
-
+    
     // Looking up for entry
-    struct sock **skpp;
     skpp = currsock.lookup(&pid);
     if (skpp == 0) {
         return 0; // Return if missed entry
@@ -95,15 +101,13 @@ static int trace_connect_return(struct pt_regs *ctx, short ipver) {
     struct sock *skp = *skpp;
 
     // User and group id
-    u64 guid = bpf_get_current_uid_gid();
-    u32 uid = guid & 0xFFFFFFFF;
-    u32 gid = (guid >> 32) & 0xFFFFFFFF;
+    guid = bpf_get_current_uid_gid();
+    uid = guid & 0xFFFFFFFF;
+    gid = (guid >> 32) & 0xFFFFFFFF;
 
     // Ports
-    u16 loc_port = 0;
     bpf_probe_read(&loc_port, sizeof(loc_port), &skp->__sk_common.skc_dport);
     loc_port = ntohs(loc_port);
-    u16 dst_port = 0;
     bpf_probe_read(&dst_port, sizeof(dst_port), &skp->__sk_common.skc_num);
     dst_port = ntohs(dst_port);
 
@@ -172,29 +176,34 @@ int trace_connect_v6_return(struct pt_regs *ctx) {
  * was created so the hash remain unused in this situation
  */
 int trace_tcp_accept(struct pt_regs *ctx) {
+    u32 pid;
+    u64 guid;
+    u32 uid;
+    u32 gid;
+    u16 loc_port;
+    u16 dst_port;
+    u16 family;
+
     // tcp_v6_accept return value
     struct sock *newsk = (struct sock *)PT_REGS_RC(ctx);
     if (newsk == NULL) {
         return 0;
     }
     // Getting pid for lookup
-    u32 pid = bpf_get_current_pid_tgid();
+    pid = bpf_get_current_pid_tgid();
 
     // Getting user and group id
-    u64 guid = bpf_get_current_uid_gid();
-    u32 uid = guid & 0xFFFFFFFF;
-    u32 gid = (guid >> 32) & 0xFFFFFFFF;
+    guid = bpf_get_current_uid_gid();
+    uid = guid & 0xFFFFFFFF;
+    gid = (guid >> 32) & 0xFFFFFFFF;
 
     // Getting ports
-    u16 loc_port = 0;
     bpf_probe_read(&loc_port, sizeof(loc_port), &newsk->__sk_common.skc_num);
     loc_port = ntohs(loc_port);
-    u16 dst_port = 0;
     bpf_probe_read(&dst_port, sizeof(dst_port), &newsk->__sk_common.skc_dport);
     dst_port = ntohs(dst_port);
 
     // Discriminating ipv4/ipv6 based on family flag
-    u16 family = 0;
     bpf_probe_read(&family, sizeof(family), &newsk->__sk_common.skc_family);
 
     if (family == AF_INET) {
