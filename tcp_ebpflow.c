@@ -19,7 +19,7 @@ BPF_HASH(currsock, u32, struct sock *);
  * proto flag: 
  *    - 601  for tcp client
  *    - 602  for tcp server
- *    - 1701 for upd listen
+ *    - 1701 for upd receive
  *    - 1702 for udp send  
  */
 struct ipv4_data_t {
