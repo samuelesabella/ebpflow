@@ -82,10 +82,8 @@ static int trace_send_return(struct pt_regs *ctx, short ipver){
 
     pid = bpf_get_current_pid_tgid();
 
-    // udp_sendmsg return value
+    // Check entryt and udp_sendmsg return value 
     ret = PT_REGS_RC(ctx);
-
-    // Checking if entry is present
     skpp = currsock.lookup(&pid);
     if (skpp == NULL || ret == -1) {
         return 0;   // missed entry
@@ -171,17 +169,23 @@ static int trace_receive(struct pt_regs *ctx, struct sock *sk, short ipver){
     u16 loc_port = 0;
     u16 dst_port = 0;
     u16 family = 0;
-    u32 pid = bpf_get_current_pid_tgid();
-    // Separate uid and gid
-    u64 guid = bpf_get_current_uid_gid();
-    u32 uid = guid & 0xFFFFFFFF;
-    u32 gid = (guid >> 32) & 0xFFFFFFFF;
+    u32 uid;
+    u64 guid;
+    u32 gid;
+    u32 pid;
+    int ret;
 
     // Checking return code
-    int ret = PT_REGS_RC(ctx);
+    ret = PT_REGS_RC(ctx);
     if (sk == NULL || ret == -1){
         return 0;
     }
+
+    pid = bpf_get_current_pid_tgid();
+    // Separate uid and gid
+    guid = bpf_get_current_uid_gid();
+    uid = guid & 0xFFFFFFFF;
+    gid = (guid >> 32) & 0xFFFFFFFF;
    
     // Collecting ports
     bpf_probe_read(&loc_port, sizeof(loc_port), &sk->__sk_common.skc_num);
