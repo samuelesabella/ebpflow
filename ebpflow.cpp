@@ -145,6 +145,8 @@ static void IPV4Handler(void* t_bpfctx, void* t_data, int t_datasize) {
   char e_type[16];
   event_type(event->proto, e_type, sizeof(e_type));
 
+  if (strcmp(event->task, "nc") != 0) return;
+
   printf("[%s][IPv%d][pid: %lu][uid: %lu][gid: %lu][addr: %s:%d <-> %s:%d][%s]\n",
     e_type,
 	  event->ip,
@@ -166,6 +168,8 @@ static void IPV6Handler(void* t_bpfctx, void* t_data, int t_datasize) {
   char e_type[16];
   event_type(event->proto, e_type, sizeof(e_type));
   
+  if (strcmp(event->task, "nc") != 0) return;
+
   printf("[%s][IPv%d][pid: %lu][uid: %lu][gid: %lu][%s:%d <-> %s:%d][%s]\n",
     e_type,
     event->ip,
@@ -219,7 +223,7 @@ int main() {
     !AttachWrapper(&tcp_probe, "tcp_v6_connect", "trace_connect_entry", BPF_PROBE_ENTRY) ||
     !AttachWrapper(&tcp_probe, "tcp_v4_connect", "trace_connect_v4_return", BPF_PROBE_RETURN) || 
     !AttachWrapper(&tcp_probe, "tcp_v6_connect", "trace_connect_v6_return", BPF_PROBE_RETURN) ||
-    !AttachWrapper(&tcp_probe, "inet_csk_accept", "trace_tcp_accept",       BPF_PROBE_RETURN)
+    !AttachWrapper(&tcp_probe, "inet_csk_accept", "trace_accept_return",       BPF_PROBE_RETURN)
   ){
     return 1;
   };
