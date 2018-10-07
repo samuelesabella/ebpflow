@@ -145,8 +145,6 @@ static void IPV4Handler(void* t_bpfctx, void* t_data, int t_datasize) {
   char e_type[16];
   event_type(event->proto, e_type, sizeof(e_type));
 
-  if (strcmp(event->task, "nc") != 0) return;
-
   printf("[%s][IPv%d][pid: %lu][uid: %lu][gid: %lu][addr: %s:%d <-> %s:%d][%s]\n",
     e_type,
 	  event->ip,
@@ -167,8 +165,6 @@ static void IPV6Handler(void* t_bpfctx, void* t_data, int t_datasize) {
 
   char e_type[16];
   event_type(event->proto, e_type, sizeof(e_type));
-  
-  if (strcmp(event->task, "nc") != 0) return;
 
   printf("[%s][IPv%d][pid: %lu][uid: %lu][gid: %lu][%s:%d <-> %s:%d][%s]\n",
     e_type,
@@ -190,6 +186,7 @@ static void SignalHandler(int t_s) {
 }
 
 int AttachWrapper(ebpf::BPF* bpf, string t_kernel_fun, string t_ebpf_fun, bpf_probe_attach_type attach_type) {
+  // Old version of ebpf have parameters in different position
   auto attach_res = bpf->attach_kprobe(t_kernel_fun, t_ebpf_fun, 
     #if NEW_EBF
     0,

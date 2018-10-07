@@ -168,7 +168,9 @@ static int trace_return(struct pt_regs *ctx, short ipver, short t_connect) {
     }
 
     // Event submitted, we can safely elimanate the entry
-    currsock.delete(&pid);
+    if (t_connect) {
+        currsock.delete(&pid);
+    }
     return 0;
 }
 
