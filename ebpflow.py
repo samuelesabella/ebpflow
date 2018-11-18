@@ -269,6 +269,3 @@ while RUNNING is True:
   bpf.perf_buffer_poll(timeout=50)
 
 print('\r  \n' + str(estats))
-
-with open('events.log', 'a') as log:
-  log.write(str(estats) + '\n')
