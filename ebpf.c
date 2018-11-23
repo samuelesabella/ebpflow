@@ -234,7 +234,7 @@ static int fill_event(struct pt_regs *ctx, struct sock *sk, struct KernelData *t
   fill_task(&t_event_data->task, curr_task);
 
   // cgroup ----- //
-  u64 cgroup = bpf_get_current_cgroup_id();
+  u64 cgroup = CGROUP_ID
   t_event_data->task.cgroup = cgroup;
 
   // net namespace ----- //
