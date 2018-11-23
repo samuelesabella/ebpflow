@@ -25,7 +25,7 @@ signal.signal(signal.SIGINT, signal_handler)
 
 uname = os.popen('uname -r').read()
 lver = float(re.findall("\d+\.\d+", uname)[0])
-cgroupid_available = (lver > 4.18)
+cgroupid_available = (lver >= 4.18)
 cgroupid = 'bpf_get_current_cgroup_id();' if cgroupid_available else '0;'
 
 # ----- Argument parsing ----- #
@@ -73,7 +73,7 @@ class kernel_data(ct.Structure):
   _ltask = '[ktime: %s][gid: %s][uid: %s][pid: %s][%s]'
   _lparent = 'parent: [gid: %s][uid: %s][pid: %s][%s]'
   _lnetinfo = 'netinfo: [%s][IPv4][%s:%s <-> %s:%s]'
-  _lcontainer = 'container: [%s][cgroup: %s]'
+  _lcontainer = 'container: [cgroup: %s]'
   _lsecurity = 'flags: [%s]'
   
   _etype_table = {
