@@ -7,30 +7,16 @@
 #include <linux/mount.h>
 #include <linux/dcache.h>
 
+#include <linux/cgroup.h>
+#include <linux/kernfs.h>
+#include <linux/list.h>
+
 #include <linux/unistd.h>
 #include <linux/utsname.h>
 #include "ebpf_string.c"
 
-#define INJECTION_ALLOW 0
-#define SIZEOF_POLICY 14
+#define CGROUP_NAME 65
 
-
-typedef enum {
-  flag_task_gid   = 1,
-  flag_task_uid   = 2,
-  flag_task_pid   = 3,
-  flag_task       = 4,
-
-  flag_ptask_gid   = 21,
-  flag_ptask_uid   = 22,
-  flag_ptask_pid   = 23,
-  flag_ptask       = 24,
-
-  flag_loc_port = 41,
-  flag_dst_port = 42,
-
-  flag_etype = 61
-} policy_match_flag;
 
 typedef enum {
   TCP_ACPT = 601, // The event has been triggered by 'tcp_v4_connect' call 
@@ -45,8 +31,7 @@ struct task_info {
   u32 pid;
   u32 uid;
   u32 gid;
-  u64 cgroup; // cgroup id
-  struct net *n; // Pointer to network namespace
+  char cgroup[CGROUP_NAME]; // docker container id
   char task[TASK_COMM_LEN]; // Task name
 };
 
@@ -62,7 +47,6 @@ struct KernelData {
   u64 ktime; // usec since first event
   struct task_info task; // Task that triggered the ebpf event
   struct task_info ptask; // Parent task
-  int policy_flag; // usr | task | addr. | port | future use ...
   event_type etype;
   struct net_info4 net4;
 };
@@ -111,89 +95,6 @@ static void fill_tcp_net (struct KernelData *t_event_data, struct sock *sk, even
 }
 
 
-/* *************************************** */
-// ===== ===== SECURITY KEEPER ===== ===== //
-/* *************************************** */
-BPF_ARRAY(df, int, 1); // 1 for default allow else deny 
-BPF_ARRAY(policy_holder, struct KernelData, SIZEOF_POLICY);
-
-static int match_task (struct task_info *t_edata,  struct task_info *t_policy) {
-  if (t_policy->gid != -1 && t_policy->gid==t_edata->gid) {
-    return flag_task_gid;
-  }
-
-  if (t_policy->uid != -1 && t_policy->uid==t_edata->uid) {
-    return flag_task_uid;
-  }
-
-  if (t_policy->pid != -1 && t_policy->pid==t_edata->pid) {
-    return flag_task_pid;
-  }
-
-  if (!ebpf_strcmp(t_policy->task, "*") && ebpf_strcmp(t_policy->task, t_edata->task)) {
-    return flag_task;
-  }
-
-  return 0;
-}
-
-static int match_policy (struct KernelData *t_edata, struct KernelData *t_policy, int* t_cause) {
-  int ret;
-
-  if (t_policy->etype && (t_policy->etype==t_edata->etype)) {
-    *t_cause = flag_etype;
-    return 1;
-  }
-  
-  if ((*t_cause = match_task(&t_edata->task, &t_policy->task)) != 0) {
-    return 1;
-  }
-
-  if ((*t_cause = match_task(&t_edata->ptask, &t_policy->ptask)) != 0) {
-    *t_cause += 20; // task flag to parent flag
-    return 1;
-  }
-  
-  if (t_policy->net4.loc_port != 0 && (t_policy->net4.loc_port!=t_edata->net4.loc_port)) {
-    *t_cause = flag_loc_port;
-    return 1;
-  }
-
-  if (t_policy->net4.dst_port != 0 && (t_policy->net4.dst_port!=t_edata->net4.dst_port)) {
-    *t_cause = flag_dst_port;
-    return 1;
-  }
-
-  return 0;
-}
-
-static int gatekeeper (struct pt_regs *ctx, struct KernelData *t_event_data, int *cause) {
-  int zero = 0;
-  int *aus = (int *) df.lookup(&zero); // 1 default deny 2 for default allow
-  if (aus==NULL || *aus==0) return 0; // Policy may not be initialize (default==0)
-  int def = *aus - 1;
-
-  int match;
-  struct KernelData *p;
-  zero = -1;
-  #pragma unroll (SIZEOF_POLICY)
-  for (int i = 0; i < SIZEOF_POLICY; i++) {
-    zero++;
-    // Grabbing policy
-    p = policy_holder.lookup(&zero);
-    if (p==NULL) return 0;
-    else if(p->policy_flag==-1) continue;
-
-    // Matching policy with event
-    match = match_policy(t_event_data, p, cause);
-    // Injecting based on default deny/allow
-    if (match == def) return -1;
-  }
-
-  return 0;
-}
-
-
 /* *********************************** */
 // ===== ===== USER OUTPUT ===== ===== //
 /* *********************************** */
@@ -231,15 +132,27 @@ static int fill_event(struct pt_regs *ctx, struct sock *sk, struct KernelData *t
 
   // Current task ----- //
   curr_task = (struct task_struct *) bpf_get_current_task();
-  fill_task(&t_event_data->task, curr_task);
+  fill_task(&t_event_data->task, curr_task); 
 
-  // cgroup ----- //
-  u64 cgroup = CGROUP_ID
-  t_event_data->task.cgroup = cgroup;
-
-  // net namespace ----- //
-  struct net *n = curr_task->nsproxy->net_ns;
-  t_event_data->task.n = n;
+  // Cgroup ----- //  
+  struct cgroup *cg;
+  struct css_set *css;
+  struct cgroup_subsys_state *sbs; 
+  struct kernfs_node *knode, *pknode;
+  // Gathering cgroup
+  bpf_probe_read(&css, sizeof(void *), &curr_task->cgroups);
+  bpf_probe_read(&sbs, sizeof(void *), &css->subsys[0]);
+  bpf_probe_read(&cg, sizeof(void *), &sbs->cgroup);
+  // Reading fspath
+  bpf_probe_read(&knode, sizeof(void *), &cg->kn);
+  bpf_probe_read(&pknode, sizeof(void *), &knode->parent);
+  char *rootcg = "/";
+  memcpy(t_event_data->task.cgroup, "/", CGROUP_NAME);
+  if(pknode != NULL) {
+    char *aus;
+    bpf_probe_read(&aus, sizeof(void *), &knode->name);
+    bpf_probe_read_str(&t_event_data->task.cgroup, CGROUP_NAME, aus);
+  }
 
   // Parent task ----- //
   bpf_probe_read(&parent_task, sizeof(struct task_struct *), &curr_task->real_parent);
@@ -304,15 +217,6 @@ int trace_connect_v4_return (struct pt_regs *ctx) {
   if(connect_check(ctx, &sk) != 0) return -1; 
   fill_event(ctx, sk, &event_data, TCP_CONN);
 
-  // Security filter ----- //
-  #if INJECTION_ALLOW
-  int cause;
-  if(gatekeeper(ctx, &event_data, &cause) != 0) {
-    event_data.policy_flag = cause;
-    bpf_override_return(ctx, -1);
-  }
-  #endif
-
   // Submitting event
   FLTR_TASK
   user_buffer.perf_submit(ctx, &event_data, sizeof(struct KernelData));
@@ -340,15 +244,6 @@ int trace_accept_return (struct pt_regs *ctx) {
     return -1;
   }
   fill_event(ctx, sk, &event_data, TCP_ACPT);
-
-  // Security filter ----- //
-  #if INJECTION_ALLOW
-  int cause;
-  if(gatekeeper(ctx, &event_data, &cause) != 0) {
-    event_data.policy_flag = cause;
-    bpf_override_return(ctx, -1);
-  }
-  #endif
   
   // Submitting event
   FLTR_TASK

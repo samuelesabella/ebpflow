@@ -25,15 +25,19 @@ signal.signal(signal.SIGINT, signal_handler)
 
 uname = os.popen('uname -r').read()
 lver = float(re.findall("\d+\.\d+", uname)[0])
-cgroupid_available = (lver >= 4.18)
-cgroupid = 'bpf_get_current_cgroup_id();' if cgroupid_available else '0;'
 
 # ----- Argument parsing ----- #
-parser = argparse.ArgumentParser()
+dscr = 'TCP flow monitor tool based on eBPF'
+parser = argparse.ArgumentParser(description=dscr)
+# Task filter
 parser.add_argument('-t', '--task', default=None,
-  help='add a filter based on task\'s name')
+  help='filter events of a specific task')
+# Container full id
+parser.add_argument('--no-trunc', dest='no_trunc', action='store_true',
+  help='show docker full id')
 args = parser.parse_args()
 FILTER_TASK = args.task
+NO_TRUNC = args.no_trunc
 
 
 # *************************************** #
@@ -41,13 +45,13 @@ FILTER_TASK = args.task
 # *************************************** #
 # ----- User Kernel Data Structures ----- #
 TASK_COMM_LEN = 16 
+CGROUP_NAME = 65
 class task_info(ct.Structure):
   _fields_ = [
     ("pid", ct.c_uint32),
     ("uid", ct.c_uint32),
     ("gid", ct.c_uint32),
-    ("cgroup", ct.c_uint64),
-    ("n", ct.c_void_p),
+    ("cgroup", ct.c_char * CGROUP_NAME),
     ("task", ct.c_char * TASK_COMM_LEN)
 	]
 
@@ -65,7 +69,6 @@ class kernel_data(ct.Structure):
     ("ktime", ct.c_uint64),
     ("task", task_info),
     ("ptask", task_info),
-    ("policy_flag", ct.c_int),
     ("etype", ct.c_int),
     ("net4", net_info4)
   ]
@@ -73,8 +76,7 @@ class kernel_data(ct.Structure):
   _ltask = '[ktime: %s][gid: %s][uid: %s][pid: %s][%s]'
   _lparent = 'parent: [gid: %s][uid: %s][pid: %s][%s]'
   _lnetinfo = 'netinfo: [%s][IPv4][%s:%s <-> %s:%s]'
-  _lcontainer = 'container: [cgroup: %s]'
-  _lsecurity = 'flags: [%s]'
+  _lcgroup = 'container: [dockerid: %s]'
   
   _etype_table = {
     601: 'TCP/ACC',
@@ -90,15 +92,11 @@ class kernel_data(ct.Structure):
     lines.append(self._lnetinfo % (self.etype2str(), 
       inet_ntop(AF_INET, pack("I", self.net4.saddr)), self.net4.loc_port, 
       inet_ntop(AF_INET, pack("I", self.net4.daddr)), self.net4.dst_port))
-    if cgroupid_available:
-      lines.append(self._lcontainer % self.task.cgroup)
+    if self.task.cgroup != '/':
+      dockerid = self.task.cgroup if NO_TRUNC else self.task.cgroup[:12]
+      lines.append(self._lcgroup % dockerid)
     return '\n|__'.join(lines)
 
-  def dump_json (self):
-    return json.dumps(self)
-
-  def from_json (self, json_data):
-    print(json_data)
 
 # ----- Events Statistics ----- #
 class AtomicInteger():
@@ -148,7 +146,7 @@ def print_ipv4_event(cpu, data, size):
 # **************************************** #
 # ===== ===== ATTACHING PROBES ===== ===== #
 # **************************************** #
-def readebpf(src, task=None, ):
+def readebpf(src, task=None):
   """
   Load ebpf program in a string and, if specified, apply
   a filter on the task's name
@@ -163,7 +161,6 @@ def readebpf(src, task=None, ):
   if task is not None:
     fltr = 'if(ebpf_strcmp(event_data.task.task, "%s") == 0)' % (task)
   ebpftxt = ebpftxt.replace('FLTR_TASK', fltr) 
-  ebpftxt = ebpftxt.replace('CGROUP_ID', cgroupid)
 
   return ebpftxt
 
