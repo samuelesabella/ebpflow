@@ -8,6 +8,8 @@ import argparse
 import signal
 
 
+print('burst_generator: -h to show options')
+
 # ----- Globals ----- #
 TEST_MSG = 'Hello, eBPF!'
 TERMINATION_MSG = '<END>'
@@ -28,8 +30,8 @@ if args.file is not None:
   with open(args.file, 'r') as msgfile:
     TEST_MSG = msgfile.read()
     TEST_MSG = TEST_MSG.replace('\n', ' ')
-print('Creating {0} clients and a server on port {1}'.format(CLIENT_NUM, PORT))
-print('burst_generator -h to show help message')
+print('> Creating {0} clients and a server on port {1}'.format(CLIENT_NUM, PORT))
+
 
 # ****************************** */
 # ===== ===== SERVER ===== ===== //
@@ -133,6 +135,7 @@ s = server(PORT)
 s.start()
 # Running clients
 ac = atlante_client("localhost", PORT)
+print('> Generating traffic')
 ac.rise_up(CLIENT_NUM)
 ac.join()
 # Starting last client (i.e. the one that sends TERMINATION_MSG)
@@ -140,5 +143,6 @@ term_thread = client_thread("localhost", PORT, TERMINATION_MSG)
 term_thread.start()
 term_thread.join()
 # Joining the server
+print('> Closing the server')
 s.join()
 

@@ -15,6 +15,8 @@ import ctypes as ct
 from bcc import BPF
 
 
+print('ebpflow: -h to show options')
+
 # ----- Globals and Termination ----- #
 RUNNING = True
 
