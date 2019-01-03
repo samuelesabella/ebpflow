@@ -3,7 +3,7 @@ ebpflow
 This project aims to offer a packet flow tracer based on eBPF.
 
 ### Dependencies
-__ebpflow__ needs [BPF Compiler Collection](https://github.com/iovisor/bcc/) (*BCC*) to be installed. More info regarding how to install *BCC* can be found by visiting: [installing bcc](https://github.com/iovisor/bcc/blob/master/INSTALL.md).
+__ebpflow__ needs [BPF Compiler Collection](https://github.com/iovisor/bcc/) (*BCC*) to be installed. More info concerning how to install *BCC* can be found by visiting: [installing bcc](https://github.com/iovisor/bcc/blob/master/INSTALL.md).
 
 ### Running and testing
 From the project root, *ebpflow* can be used by running:
