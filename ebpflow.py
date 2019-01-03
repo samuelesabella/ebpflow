@@ -23,9 +23,6 @@ def signal_handler(sig, frame):
 	RUNNING = False
 signal.signal(signal.SIGINT, signal_handler)
 
-uname = os.popen('uname -r').read()
-lver = float(re.findall("\d+\.\d+", uname)[0])
-
 # ----- Argument parsing ----- #
 dscr = 'TCP flow monitor tool based on eBPF'
 parser = argparse.ArgumentParser(description=dscr)
@@ -64,6 +61,9 @@ class net_info4(ct.Structure):
 	]
 
 class kernel_data(ct.Structure):
+  """
+  Redefine ctypes to handle and nicely print ebpflow events
+  """
   _fields_ = [
     ("absolute_time", ct.c_uint64),
     ("ktime", ct.c_uint64),
@@ -113,13 +113,16 @@ class AtomicInteger():
     with self.m_lock:
       return self.m_value
 
+
 class Events_Statics():
+  """
+  Accounts for connection events (etype==602) and accept(etype==601) events
+  """
   def __init__(self):
     self.connect_counter = AtomicInteger(0)
     self.accept_counter = AtomicInteger(0)
 
   def add(self, e):
-    # Event counting
     if e.etype == 601:
       self.accept_counter += 1
     else:
