@@ -16,5 +16,5 @@ $ ./burst_generator.py -c 100
 ```
 Booth tool supports the flag *-h* to show the options availables
 
-### How information are gathered?
+### How is information gathered?
 Information regarding each process is read from inside kernel's data structures, starting from [__task_struct__](https://elixir.bootlin.com/linux/v4.18.10/source/include/linux/sched.h#L593) . Containers are distinguished by other processes by looking at the cgroup identifier to which each process belongs to. The docker daemon can then be queried by using the docker id, returned by *ebpflow*, to exctract further information about the container.
