@@ -85,10 +85,9 @@ static void fill_tcp_net (struct KernelData *t_event_data, struct sock *sk, even
   // Ports ----- //
   bpf_probe_read(&t_event_data->net4.dst_port, sizeof(u16), &sk->__sk_common.skc_dport);
   bpf_probe_read(&t_event_data->net4.loc_port, sizeof(u16), &sk->__sk_common.skc_num);
-  if (t_etype == TCP_CONN) {
-    t_event_data->net4.dst_port = ntohs(t_event_data->net4.dst_port);
-    t_event_data->net4.loc_port = ntohs(t_event_data->net4.loc_port);
-  }
+  // Converting from network to host
+  t_event_data->net4.dst_port = ntohs(t_event_data->net4.dst_port);
+
   // Addresses ----- //
   bpf_probe_read(&t_event_data->net4.saddr, sizeof(u32), &sk->__sk_common.skc_rcv_saddr);
   bpf_probe_read(&t_event_data->net4.daddr, sizeof(u32), &sk->__sk_common.skc_daddr);
