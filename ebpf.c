@@ -68,6 +68,15 @@ BPF_HASH(currsock, u32, struct sock*, 1024);
 /* ****************************************** */
 // ===== ===== INFORMATION GATHER ===== ===== //
 /* ****************************************** */
+/*
+ * DESCRIPTION: fill a structure KernelData with information that
+ * ARGS:
+ *    ctx - ebpf context, given for each event_typ
+ *    t_sk  - the socket from which to extract information
+ *    t_event_data - the structure to fill
+ *    t_etype - the cause that generated the event
+ * RETURN: 0 if no error occurred, -1 otherwise
+ */
 static void fill_task (struct task_info *t_dst, struct task_struct *t_task) {
   // Reading credentials to extract user and group id
   struct cred *credential;
@@ -101,8 +110,7 @@ static void fill_tcp_net (struct KernelData *t_event_data, struct sock *sk, even
 BPF_ARRAY(g_init_time, u64, 1);
 
 /*
- * DESCRIPTION: fill a structure KernelData with all interesting information that
- *              can be gathered.
+ * DESCRIPTION: fill a structure KernelData with information
  * ARGS:
  *    ctx - ebpf context, given for each event_typ
  *    t_sk  - the socket from which to extract information
@@ -112,7 +120,7 @@ BPF_ARRAY(g_init_time, u64, 1);
  */
 static int fill_event(struct pt_regs *ctx, struct sock *sk, struct KernelData *t_event_data, event_type t_etype) {
   struct task_struct *curr_task, *parent_task;
-  
+
   // Time since first event ----- //
   int key = 0;
   u64 *leaf = g_init_time.lookup(&key);
@@ -186,7 +194,7 @@ static int connect_check (struct pt_regs *ctx, struct sock **t_sk) {
   u64 diff;
   u32 tid = (bpf_get_current_pid_tgid() >> 32) & 0xFFFFFFFF;  
 
-  // Uncomment to discard error events discarded
+  // Uncomment to discard error events
   // Checking if connect has succed, if not delete entry from table (SYNC packet fail)
   /*
   if (PT_REGS_RC(ctx) != 0) {
