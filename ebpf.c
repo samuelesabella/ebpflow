@@ -15,7 +15,7 @@
 #include <linux/utsname.h>
 #include "ebpf_string.c"
 
-#define CGROUP_NAME 65
+#define CGROUP_NAME 64
 
 
 typedef enum {

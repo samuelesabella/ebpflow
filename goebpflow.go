@@ -45,11 +45,10 @@ type Net_info4 struct {
 type KernelData struct {
   Absolute_time uint64 // need to measure the time to sget the event
   Ktime uint64 // usec since first event
-  Net4 Net_info4
   Task Task_info // Task that triggered the ebpf event
   Ptask Task_info // Parent task
   Event_type Etype
-  
+  Net4 Net_info4
 }
 
 func attachProbe (m *bpf.Module, syscall string, bpfprobe string, ret ...int) (int, string) {
@@ -75,10 +74,10 @@ func attachProbe (m *bpf.Module, syscall string, bpfprobe string, ret ...int) (i
 
 func ntoh(ip uint32) string {
   iphost := int64(ip)
-  a0 := strconv.FormatInt((iphost>>24)&0xff, 10)
-  a1 := strconv.FormatInt((iphost>>16)&0xff, 10)
-  a2 := strconv.FormatInt((iphost>>8)&0xff, 10)
-  a3 := strconv.FormatInt((iphost & 0xff), 10)
+  a3 := strconv.FormatInt((iphost>>24)&0xff, 10)
+  a2 := strconv.FormatInt((iphost>>16)&0xff, 10)
+  a1 := strconv.FormatInt((iphost>>8)&0xff, 10)
+  a0 := strconv.FormatInt((iphost & 0xff), 10)
   return a0 + "." + a1 + "." + a2 + "." + a3
 }
 
@@ -155,7 +154,7 @@ func main() {
       // Display info
       fmt.Printf("[%d][gid:%d][uid:%d][pid:%d][%s] \n", event.Ktime, event.Task.Gid, event.Task.Uid, event.Task.Pid, task)
       fmt.Printf("   [gid:%d][uid:%d][pid:%d][%s] (parent) \n", event.Ptask.Gid, event.Ptask.Uid, event.Ptask.Pid, ptask)
-      fmt.Printf("   [%s][IPv4][%5s:%d/%5s:%d] \n", event_type, saddr, event.Net4.Loc_port, daddr, event.Net4.Dst_port)
+      fmt.Printf("   [%s][IPv4][%5s:%d <-> %5s:%d] \n", event_type, saddr, event.Net4.Loc_port, daddr, event.Net4.Dst_port)
       if is_container {
         fmt.Printf("   [cID:%.12s] (docker) \n", cgroup)
       }

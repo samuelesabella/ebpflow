@@ -44,7 +44,7 @@ NO_TRUNC = args.no_trunc
 # *************************************** #
 # ----- User Kernel Data Structures ----- #
 TASK_COMM_LEN = 16 
-CGROUP_NAME = 65
+CGROUP_NAME = 64
 class task_info(ct.Structure):
   _fields_ = [
     ("pid", ct.c_uint32),
