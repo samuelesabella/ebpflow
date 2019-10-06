@@ -188,7 +188,7 @@ print('> Output buffer opened')
 
 # ----- Polling events ----- #
 print('> Start polling events. CTRL+C to stop\n')
-while RUNNING is True:
+while RUNNING:
   bpf.perf_buffer_poll(timeout=50)
 
 print('\r  \n' + str(estats))
